@@ -27,6 +27,9 @@ yarn-error.log*
 
 # uploads (local dev)
 /public/uploads
+
+# Mobile app (separate git repo)
+/mobile
 /uploads
 
 # typescript
