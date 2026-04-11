@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --kv-bg: #f5f5dc;
+  --kv-saffron: #ff9933;
+  --kv-gold: #d4af37;
+  --kv-ink: #2c2416;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  @apply bg-parchment text-ink antialiased;
+  background-image: radial-gradient(ellipse 100% 80% at 50% -30%, rgba(255, 153, 51, 0.14), transparent 50%),
+    linear-gradient(180deg, #f5f5dc 0%, #faf6ea 100%);
+  min-height: 100dvh;
+}
+
+/* Space for sticky audio player */
+body[data-player="1"] {
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.pb-player {
+  padding-bottom: calc(5.5rem + env(safe-area-inset-bottom, 0px));
+}
+
+@media (min-width: 768px) {
+  .pb-player {
+    padding-bottom: calc(4.5rem + env(safe-area-inset-bottom, 0px));
+  }
+}
+
+.focus-ring {
+  @apply outline-none ring-2 ring-saffron/40 ring-offset-2 ring-offset-parchment rounded-lg;
+}
+
+.glass-panel {
+  @apply bg-white/50 backdrop-blur-md border border-white/60 shadow-card rounded-2xl;
+}

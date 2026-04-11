@@ -1,0 +1,11 @@
+{
+  "name": "KarVicharTohPamm",
+  "short_name": "KVTP",
+  "description": "Spiritual wisdom, bhajans, books, and live satsang.",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#F5F5DC",
+  "theme_color": "#FF9933",
+  "orientation": "portrait-primary",
+  "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }]
+}
