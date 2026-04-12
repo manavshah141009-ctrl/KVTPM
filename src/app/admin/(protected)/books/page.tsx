@@ -5,7 +5,7 @@ export default function AdminBooksPage() {
     <div>
       <h1 className="font-serif text-3xl text-ink mb-2">Books</h1>
       <p className="text-ink/65 text-sm mb-8 max-w-xl">
-        Paste Google Drive links (shared as "Anyone with the link") for covers and PDFs — they are
+        Paste Google Drive links (shared as &quot;Anyone with the link&quot;) for covers and PDFs — they are
         automatically converted so covers display and PDFs open in the built-in reader.
       </p>
       <AdminBooksClient />

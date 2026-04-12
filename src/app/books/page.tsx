@@ -6,10 +6,11 @@ import { gdriveThumbnailUrl, isGdriveUrl } from "@/lib/gdrive";
 export const revalidate = 120;
 
 export default async function BooksPage() {
-  let books: Awaited<ReturnType<typeof Book.find>> = [];
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let books: any[] = [];
   try {
     await dbConnect();
-    books = await Book.find({ published: true }).sort({ order: 1, createdAt: -1 }).lean();
+    books = await Book.find({ published: true }).sort({ order: 1, createdAt: -1 }).lean() as any[];
   } catch {
     books = [];
   }

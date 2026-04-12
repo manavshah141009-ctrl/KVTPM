@@ -149,7 +149,7 @@ export function AdminBooksClient() {
         <ol className="text-xs text-ink/65 font-sans space-y-1 list-decimal list-inside">
           <li>Upload your PDF or cover image to Google Drive</li>
           <li>Right-click the file → <strong>Share</strong></li>
-          <li>Set access to <strong>"Anyone with the link"</strong> → Viewer</li>
+          <li>Set access to <strong>&quot;Anyone with the link&quot;</strong> → Viewer</li>
           <li>Click <strong>Copy link</strong> and paste it in the fields below</li>
         </ol>
         <p className="text-xs text-ink/50 mt-2 font-sans">
@@ -227,7 +227,7 @@ export function AdminBooksClient() {
           </div>
           {pdfLink && (
             <p className="text-xs text-ink/45 mt-1 font-sans">
-              Readers will see "Read online" (in-browser viewer) + "Download PDF" buttons.
+              Readers will see &quot;Read online&quot; (in-browser viewer) + &quot;Download PDF&quot; buttons.
             </p>
           )}
         </div>

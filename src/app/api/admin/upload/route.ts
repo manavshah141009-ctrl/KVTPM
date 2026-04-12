@@ -9,7 +9,8 @@ export async function POST(req: Request) {
   const gate = await requireAdmin(req);
   if (!gate.ok) return gate.response;
 
-  const form = await req.formData();
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const form: any = await req.formData();
   const file = form.get("file");
   const folderRaw = form.get("folder");
   if (!(file instanceof File)) {

@@ -10,12 +10,14 @@ declare global {
   var mongooseCache: MongooseCache | undefined;
 }
 
+// Cache connection in global scope for ALL environments (including production/Netlify)
 const cache: MongooseCache = global.mongooseCache ?? { conn: null, promise: null };
-if (process.env.NODE_ENV !== "production") global.mongooseCache = cache;
+global.mongooseCache = cache;
 
 export async function dbConnect(): Promise<typeof mongoose> {
   const uri = process.env.MONGODB_URI;
   if (!uri) {
+    console.error("[db] MONGODB_URI is not defined. Available env keys:", Object.keys(process.env).filter(k => k.startsWith("MONGO") || k.startsWith("NEXT") || k.startsWith("JWT")));
     throw new Error("Please define MONGODB_URI in your environment");
   }
   if (cache.conn) return cache.conn;
@@ -24,6 +26,12 @@ export async function dbConnect(): Promise<typeof mongoose> {
       bufferCommands: false,
     });
   }
-  cache.conn = await cache.promise;
+  try {
+    cache.conn = await cache.promise;
+  } catch (err) {
+    // Reset promise on failure so next call retries
+    cache.promise = null;
+    throw err;
+  }
   return cache.conn;
 }

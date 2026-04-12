@@ -16,7 +16,6 @@ export function LiveView({ initial }: { initial: LiveCfg | null }) {
   const [cfg, setCfg] = useState<LiveCfg | null>(initial);
 
   useEffect(() => {
-    let t: ReturnType<typeof setInterval> | undefined;
     const poll = async () => {
       try {
         const res = await fetch("/api/live");
@@ -27,7 +26,7 @@ export function LiveView({ initial }: { initial: LiveCfg | null }) {
         /* ignore */
       }
     };
-    t = setInterval(poll, 45000);
+    const t = setInterval(poll, 45000);
     return () => clearInterval(t);
   }, []);
 

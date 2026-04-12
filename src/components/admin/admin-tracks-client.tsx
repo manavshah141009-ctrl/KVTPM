@@ -134,7 +134,7 @@ export function AdminTracksClient() {
         <ol className="text-xs text-ink/65 font-sans space-y-1 list-decimal list-inside">
           <li>Upload your MP3 to Google Drive</li>
           <li>Right-click the file → <strong>Share</strong></li>
-          <li>Set access to <strong>"Anyone with the link"</strong> → Viewer</li>
+          <li>Set access to <strong>&quot;Anyone with the link&quot;</strong> → Viewer</li>
           <li>Click <strong>Copy link</strong> and paste it below</li>
         </ol>
         <p className="text-xs text-ink/50 mt-2 font-sans">Links are automatically converted for browser playback — no extra steps needed.</p>
