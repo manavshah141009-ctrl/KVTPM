@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 
 export default function ListenPage() {
-  const { tracks, loadPlaylist, playIndex, currentIndex, isPlaying, current } = useAudio();
+  const { tracks, loadPlaylist, playIndex, togglePlay, currentIndex, isPlaying, current } = useAudio();
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState<string | null>(null);
 
@@ -43,6 +43,17 @@ export default function ListenPage() {
       {loading && <p className="font-sans text-ink/60">Loading playlist…</p>}
       {err && <p className="font-sans text-saffron-dim">{err}</p>}
 
+      {!loading && tracks.length > 0 && (
+        <div className="mb-8">
+          <button
+            onClick={() => togglePlay()}
+            className="rounded-2xl bg-saffron text-white px-8 py-3 font-medium font-sans hover:bg-saffron-dim transition-colors shadow-glow-sm"
+          >
+            {isPlaying ? "Pause Broadcast" : "Listen Live"}
+          </button>
+        </div>
+      )}
+
       <ul className="space-y-2">
         {tracks.map((t, i) => {
           const active = i === currentIndex;
@@ -64,13 +75,11 @@ export default function ListenPage() {
                 </p>
                 {t.artist && <p className="text-sm text-ink/55 truncate font-sans">{t.artist}</p>}
               </div>
-              <button
-                type="button"
-                onClick={() => playIndex(i)}
-                className="shrink-0 rounded-xl bg-saffron/90 text-white px-4 py-2 text-sm font-sans hover:bg-saffron"
-              >
-                {active && isPlaying ? "Playing" : "Play"}
-              </button>
+              {active && (
+                <div className="shrink-0 rounded-xl bg-saffron/10 text-saffron-dim px-3 py-1 text-xs font-bold tracking-wider font-sans border border-saffron/20 animate-pulse-soft">
+                  ON AIR
+                </div>
+              )}
             </motion.li>
           );
         })}

@@ -41,7 +41,6 @@ type AudioCtx = {
 const Ctx = createContext<AudioCtx | null>(null);
 
 const LS_VOL = "kvtp_vol";
-const LS_ID = "kvtp_tid";
 
 export function AudioProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null);
@@ -51,6 +50,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [volume, setVolumeState] = useState(0.85);
 
   const current = tracks[currentIndex] ?? null;
+  const radioStartOffset = useRef<number | null>(null);
 
   useEffect(() => {
     const v = localStorage.getItem(LS_VOL);
@@ -66,52 +66,76 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     if (el) el.volume = volume;
   }, [volume]);
 
+  const syncRadioToNow = useCallback((items: TrackItem[]) => {
+    if (!items.length) return { index: 0, offset: 0 };
+    // Only use tracks that have a duration for the time calculation.
+    // If a track lacks duration, it breaks the maths.
+    const validItems = items.filter((i) => (i.durationSec ?? 0) > 0);
+    if (!validItems.length) return { index: 0, offset: 0 };
+
+    const total = validItems.reduce((acc, t) => acc + (t.durationSec || 0), 0);
+    const nowSec = Math.floor(Date.now() / 1000);
+    const loopPos = nowSec % total;
+
+    let acc = 0;
+    for (let i = 0; i < validItems.length; i++) {
+      const d = validItems[i].durationSec || 0;
+      if (acc + d > loopPos) {
+        const originalIndex = items.findIndex((orig) => orig.id === validItems[i].id);
+        return { index: originalIndex >= 0 ? originalIndex : 0, offset: loopPos - acc };
+      }
+      acc += d;
+    }
+    return { index: 0, offset: 0 };
+  }, []);
+
   const setTracks = useCallback((t: TrackItem[]) => {
     setTracksState(t);
   }, []);
 
-  const persistIndex = useCallback((idx: number, list: TrackItem[]) => {
-    setCurrentIndex(idx);
-    const item = list[idx];
-    if (item) localStorage.setItem(LS_ID, item.id);
-  }, []);
-
   const loadPlaylist = useCallback(
-    (items: TrackItem[], startIndex = 0) => {
+    (items: TrackItem[]) => {
       setTracksState(items);
-      const savedId = localStorage.getItem(LS_ID);
-      let idx = startIndex;
-      if (savedId) {
-        const found = items.findIndex((x) => x.id === savedId);
-        if (found >= 0) idx = found;
-      }
-      persistIndex(Math.min(idx, Math.max(0, items.length - 1)), items);
+      const { index, offset } = syncRadioToNow(items);
+      radioStartOffset.current = offset;
+      setCurrentIndex(index);
     },
-    [persistIndex]
+    [syncRadioToNow]
   );
 
   const playIndex = useCallback(
-    (i: number) => {
+    () => {
+      // Disabled specific index playing for Radio mode. 
+      // Instead, we just sync to live.
       if (!tracks.length) return;
-      const ni = ((i % tracks.length) + tracks.length) % tracks.length;
-      persistIndex(ni, tracks);
-      setPlaying(true);
-      queueMicrotask(() => {
-        void audioRef.current?.play().catch(() => setPlaying(false));
-      });
+      const { index, offset } = syncRadioToNow(tracks);
+      
+      const el = audioRef.current;
+      if (index === currentIndex && el) {
+        el.currentTime = offset;
+        setPlaying(true);
+        void el.play().catch(() => setPlaying(false));
+      } else {
+        radioStartOffset.current = offset;
+        setCurrentIndex(index);
+        setPlaying(true);
+      }
     },
-    [tracks, persistIndex]
+    [tracks, currentIndex, syncRadioToNow]
   );
 
+  // Play next just resyncs naturally based on the new clock time.
   const playNext = useCallback(() => {
     if (!tracks.length) return;
-    playIndex(currentIndex + 1);
-  }, [tracks.length, currentIndex, playIndex]);
+    const { index, offset } = syncRadioToNow(tracks);
+    radioStartOffset.current = offset;
+    setCurrentIndex(index);
+  }, [tracks, syncRadioToNow]);
 
   const playPrev = useCallback(() => {
-    if (!tracks.length) return;
-    playIndex(currentIndex - 1);
-  }, [tracks.length, currentIndex, playIndex]);
+    // Disabled in radio mode, just resync
+    playNext();
+  }, [playNext]);
 
   const togglePlay = useCallback(() => {
     const el = audioRef.current;
@@ -136,9 +160,23 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       ? gdriveAudioUrl(current.audioUrl)
       : current.audioUrl;
     el.load();
-    if (isPlaying) {
-      void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-    }
+
+    const applyOffset = () => {
+      if (radioStartOffset.current !== null) {
+        el.currentTime = radioStartOffset.current;
+        radioStartOffset.current = null;
+      }
+      if (isPlaying) {
+        void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+      }
+      el.removeEventListener("canplay", applyOffset);
+    };
+
+    el.addEventListener("canplay", applyOffset);
+
+    return () => {
+      el.removeEventListener("canplay", applyOffset);
+    };
   }, [current?.id, current?.audioUrl]);
 
   useEffect(() => {

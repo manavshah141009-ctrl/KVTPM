@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { gdriveFileId, isGdriveUrl } from "@/lib/gdrive";
+import { gdriveAudioUrl, gdriveFileId, isGdriveUrl } from "@/lib/gdrive";
 
 type TrackRow = {
   _id: string;
@@ -48,6 +48,8 @@ export function AdminTracksClient() {
   const [description, setDescription] = useState("");
   const [order, setOrder] = useState(0);
   const [audioLink, setAudioLink] = useState("");
+  const [durationMin, setDurationMin] = useState(0);
+  const [durationSec, setDurationSec] = useState(0);
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -66,6 +68,25 @@ export function AdminTracksClient() {
       }
     })();
   }, []);
+
+  useEffect(() => {
+    if (!audioLink) return;
+    const url = isGdriveUrl(audioLink) ? gdriveAudioUrl(audioLink) : audioLink;
+    if (!url.startsWith("http") && !url.startsWith("/")) return;
+
+    const a = new Audio(url);
+    a.preload = "metadata";
+    const onLoad = () => {
+      if (a.duration && !isNaN(a.duration) && a.duration !== Infinity) {
+        const totalSec = Math.floor(a.duration);
+        setDurationMin(Math.floor(totalSec / 60));
+        setDurationSec(totalSec % 60);
+        setMsg("✓ Auto-detected audio duration");
+      }
+    };
+    a.addEventListener("loadedmetadata", onLoad);
+    return () => a.removeEventListener("loadedmetadata", onLoad);
+  }, [audioLink]);
 
   async function addTrack(e: React.FormEvent) {
     e.preventDefault();
@@ -88,6 +109,7 @@ export function AdminTracksClient() {
           artist: artist.trim() || undefined,
           description: description.trim() || undefined,
           audioUrl: audioLink.trim(),
+          durationSec: durationMin * 60 + durationSec > 0 ? durationMin * 60 + durationSec : undefined,
           order,
           published: true,
         }),
@@ -101,6 +123,8 @@ export function AdminTracksClient() {
       setDescription("");
       setOrder(0);
       setAudioLink("");
+      setDurationMin(0);
+      setDurationSec(0);
       await refresh();
       setMsg("✓ Track added.");
     } finally {
@@ -189,6 +213,33 @@ export function AdminTracksClient() {
           </div>
         </div>
 
+        <div className="flex gap-4">
+          <label className="block text-sm">
+            <div className="flex justify-between items-baseline">
+              <span>Duration - Minutes <span className="text-red-500">*</span></span>
+              <span className="text-[10px] text-ink/40">Auto-detected if possible</span>
+            </div>
+            <input
+              type="number"
+              value={durationMin}
+              onChange={(e) => setDurationMin(parseInt(e.target.value, 10) || 0)}
+              className="mt-1 w-full rounded-xl border border-ink/15 bg-white/80 px-3 py-2"
+              placeholder="Min"
+            />
+          </label>
+          <label className="block text-sm">
+            <br />
+            Seconds <span className="text-red-500">*</span>
+            <input
+              type="number"
+              value={durationSec}
+              onChange={(e) => setDurationSec(parseInt(e.target.value, 10) || 0)}
+              className="mt-1 w-full rounded-xl border border-ink/15 bg-white/80 px-3 py-2"
+              placeholder="Sec"
+            />
+          </label>
+        </div>
+
         <label className="block text-sm">
           Order <span className="text-ink/40">(lower plays first)</span>
           <input
@@ -230,7 +281,10 @@ export function AdminTracksClient() {
               <div className="flex flex-col md:flex-row md:items-center gap-3 md:justify-between">
                 <div className="min-w-0 flex-1">
                   <p className="font-medium truncate">{r.title}</p>
-                  <p className="text-xs text-ink/50 truncate">{r.artist ?? ""}</p>
+                  <p className="text-xs text-ink/50 truncate">
+                    {r.artist ?? ""}
+                    {r.durationSec ? ` • ${Math.floor(r.durationSec / 60)}:${(r.durationSec % 60).toString().padStart(2, "0")}` : ""}
+                  </p>
                   <DriveStatus url={r.audioUrl} />
                 </div>
                 <div className="flex flex-wrap gap-3 items-center">
@@ -252,6 +306,17 @@ export function AdminTracksClient() {
                       onChange={(e) => patch(r._id, { published: e.target.checked })}
                     />
                     Published
+                  </label>
+                  <label className="text-xs flex items-center gap-1">
+                    Duration(s)
+                    <input
+                      type="number"
+                      defaultValue={r.durationSec || 0}
+                      className="w-16 rounded border border-ink/15 px-1 bg-white/70"
+                      onBlur={(e) =>
+                        patch(r._id, { durationSec: parseInt(e.target.value, 10) || undefined })
+                      }
+                    />
                   </label>
                   <button
                     type="button"
