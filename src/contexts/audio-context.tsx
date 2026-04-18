@@ -12,6 +12,9 @@ import {
 } from "react";
 import { gdriveAudioUrl, isGdriveUrl } from "@/lib/gdrive";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Types
+// ─────────────────────────────────────────────────────────────────────────────
 export type TrackItem = {
   id: string;
   title: string;
@@ -20,6 +23,13 @@ export type TrackItem = {
   audioUrl: string;
   durationSec?: number;
   order: number;
+};
+
+export type RadioPosition = {
+  trackIdx: number;
+  offsetSec: number;       // seconds into the current track
+  remainingSec: number;    // seconds left in the current track
+  elapsed: number;         // total seconds elapsed across full playlist
 };
 
 type AudioCtx = {
@@ -36,37 +46,224 @@ type AudioCtx = {
   playNext: () => void;
   playPrev: () => void;
   audioRef: React.RefObject<HTMLAudioElement | null>;
-  // Live Radio extensions
-  streamUrl: string | null;
+  // Virtual radio
+  radioTracks: TrackItem[];
+  startEpoch: number | null;
+  totalDuration: number;
+  isSyncedRadio: boolean;
+  radioPosition: RadioPosition | null;
+  toggleRadio: () => void;
+  needsGesture: boolean;
+  // Legacy aliases
   isLiveStream: boolean;
+  streamUrl: string | null;
   toggleLiveStream: () => void;
 };
 
 const Ctx = createContext<AudioCtx | null>(null);
-
 const LS_VOL = "kvtp_vol";
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Helpers
+// ─────────────────────────────────────────────────────────────────────────────
+function resolveAudioUrl(url: string): string {
+  return isGdriveUrl(url) ? gdriveAudioUrl(url) : url;
+}
+
+function toAbsolute(src: string): string {
+  if (src.startsWith("http")) return src;
+  return `${typeof window !== "undefined" ? window.location.origin : ""}${src.startsWith("/") ? "" : "/"}${src}`;
+}
+
+/**
+ * Calculate which track is "live" right now and its playback offset.
+ */
+function calcRadioPosition(
+  tracks: TrackItem[],
+  startEpoch: number,
+  totalDuration: number
+): RadioPosition | null {
+  if (!tracks.length || !totalDuration || !startEpoch) return null;
+  const nowSec = Date.now() / 1000;
+  const elapsed = (nowSec - startEpoch) % totalDuration;
+
+  let acc = 0;
+  for (let i = 0; i < tracks.length; i++) {
+    const dur = tracks[i].durationSec ?? 0;
+    if (elapsed < acc + dur) {
+      return {
+        trackIdx: i,
+        offsetSec: elapsed - acc,
+        remainingSec: acc + dur - elapsed,
+        elapsed,
+      };
+    }
+    acc += dur;
+  }
+  return { trackIdx: 0, offsetSec: 0, remainingSec: tracks[0].durationSec ?? 0, elapsed };
+}
+
+/**
+ * Core seek-and-play helper.
+ * Properly handles seeking AFTER metadata loads (for range-request streams).
+ * Returns a cancel function.
+ */
+function loadAndPlay(
+  el: HTMLAudioElement,
+  src: string,
+  volume: number,
+  offsetSec: number,
+  onPlay: () => void,
+  onFail: () => void
+): () => void {
+  const absoluteSrc = toAbsolute(src);
+  let cancelled = false;
+  let cleanupFns: Array<() => void> = [];
+
+  const cleanup = () => cleanupFns.forEach((fn) => fn());
+
+  const doPlay = () => {
+    if (cancelled) return;
+    el.volume = volume;
+    void el.play()
+      .then(() => { if (!cancelled) onPlay(); })
+      .catch(() => { if (!cancelled) onFail(); });
+  };
+
+  const seekAndPlay = () => {
+    if (cancelled) return;
+    el.volume = volume;
+
+    if (offsetSec <= 0) {
+      doPlay();
+      return;
+    }
+
+    // Helper: attempt seek, then play
+    const trySeek = () => {
+      if (cancelled) return;
+      if (el.seekable.length > 0) {
+        el.currentTime = Math.min(offsetSec, el.seekable.end(0));
+        const onSeeked = () => { if (!cancelled) doPlay(); };
+        el.addEventListener("seeked", onSeeked, { once: true });
+        cleanupFns.push(() => el.removeEventListener("seeked", onSeeked));
+      } else {
+        // Stream doesn't support seeking — play from beginning with visual offset
+        console.warn("[radio] seekable range empty — playing from start");
+        doPlay();
+      }
+    };
+
+    // If metadata already loaded, try seeking immediately
+    if (el.readyState >= 1) {
+      trySeek();
+    } else {
+      const onMeta = () => { if (!cancelled) trySeek(); };
+      el.addEventListener("loadedmetadata", onMeta, { once: true });
+      const onCanPlay = () => { if (!cancelled) trySeek(); };
+      el.addEventListener("canplay", onCanPlay, { once: true });
+      cleanupFns.push(
+        () => el.removeEventListener("loadedmetadata", onMeta),
+        () => el.removeEventListener("canplay", onCanPlay),
+      );
+    }
+  };
+
+  // Load source only if changed
+  if (el.src !== absoluteSrc) {
+    el.pause();
+    el.src = absoluteSrc;
+    el.preload = "auto";
+    el.load();
+  }
+
+  if (el.readyState >= 2) {
+    seekAndPlay();
+  } else {
+    const onCanPlay = () => {
+      cleanupFns = cleanupFns.filter((fn) => fn !== onCanPlay);
+      seekAndPlay();
+    };
+    el.addEventListener("canplay", onCanPlay, { once: true });
+    cleanupFns.push(() => el.removeEventListener("canplay", onCanPlay));
+  }
+
+  return () => {
+    cancelled = true;
+    cleanup();
+  };
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Provider
+// ─────────────────────────────────────────────────────────────────────────────
 export function AudioProvider({ children }: { children: ReactNode }) {
   const audioRef = useRef<HTMLAudioElement>(null);
+
+  // Browsable playlist state
   const [tracks, setTracksState] = useState<TrackItem[]>([]);
   const [currentIndex, setCurrentIndex] = useState(0);
   const [isPlaying, setPlaying] = useState(false);
   const [volume, setVolumeState] = useState(0.85);
 
-  const [streamUrl, setStreamUrl] = useState<string | null>(null);
-  const [isLiveStream, setIsLiveStream] = useState(true);
+  // Virtual radio state
+  const [radioTracks, setRadioTracks] = useState<TrackItem[]>([]);
+  const [startEpoch, setStartEpoch] = useState<number | null>(null);
+  const [totalDuration, setTotalDuration] = useState(0);
+  const [isSyncedRadio, setIsSyncedRadio] = useState(false);
+  const [radioPosition, setRadioPosition] = useState<RadioPosition | null>(null);
+  const [needsGesture, setNeedsGesture] = useState(false);
 
-  const current = tracks[currentIndex] ?? null;
-  const radioStartOffset = useRef<number | null>(null);
+  // Stable refs — avoid stale closures in callbacks/effects
+  const tracksRef       = useRef(tracks);
+  const radioTracksRef  = useRef(radioTracks);
+  const startEpochRef   = useRef(startEpoch);
+  const totalDurationRef = useRef(totalDuration);
+  const currentIndexRef = useRef(currentIndex);
+  const volumeRef       = useRef(volume);
+  const isSyncedRef     = useRef(isSyncedRadio);
+  const isPlayingRef    = useRef(isPlaying);
+  const cancelRef       = useRef<(() => void) | null>(null);
 
+  tracksRef.current       = tracks;
+  radioTracksRef.current  = radioTracks;
+  startEpochRef.current   = startEpoch;
+  totalDurationRef.current = totalDuration;
+  currentIndexRef.current = currentIndex;
+  volumeRef.current       = volume;
+  isSyncedRef.current     = isSyncedRadio;
+  isPlayingRef.current    = isPlaying;
+
+  const current = isSyncedRadio
+    ? (radioTracks[radioPosition?.trackIdx ?? 0] ?? null)
+    : (tracks[currentIndex] ?? null);
+
+  // ── Bootstrap: fetch radio data + persisted volume ──────────────────────
   useEffect(() => {
-    fetch("/api/radio")
-      .then((r) => r.json())
-      .then((d) => {
-        setStreamUrl(d.streamUrl || null);
-        if (d.streamUrl) setIsLiveStream(true);
-      })
-      .catch((err) => console.error("Failed to load stream url:", err));
+    const fetchRadio = () => {
+      fetch("/api/radio")
+        .then((r) => {
+          // Guard against HTML error pages (404 during SSR cold start)
+          const ct = r.headers.get("content-type") ?? "";
+          if (!ct.includes("application/json")) throw new Error("non-JSON response");
+          return r.json();
+        })
+        .then((d) => {
+          if (d.tracks?.length) {
+            setRadioTracks(d.tracks);
+            setStartEpoch(d.startEpoch);
+            setTotalDuration(d.totalDuration);
+          } else {
+            // Retry after 3s if no tracks yet (server might be warming up)
+            setTimeout(fetchRadio, 3000);
+          }
+        })
+        .catch((e) => {
+          console.warn("[audio] radio fetch failed, retrying:", e.message);
+          setTimeout(fetchRadio, 3000);  // retry on network / 404 errors
+        });
+    };
+    fetchRadio();
 
     const v = localStorage.getItem(LS_VOL);
     if (v != null) {
@@ -75,193 +272,328 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }
   }, []);
 
-  // Browser Autoplay Workaround (play on first interaction)
+  // ── Internal play helper ────────────────────────────────────────────────
+  const startPlaying = useCallback((src: string, offsetSec = 0) => {
+    const el = audioRef.current;
+    if (!el) return;
+    if (cancelRef.current) { cancelRef.current(); cancelRef.current = null; }
+
+    const cancel = loadAndPlay(
+      el, src, volumeRef.current, offsetSec,
+      () => setPlaying(true),
+      () => setPlaying(false)
+    );
+    cancelRef.current = cancel;
+  }, []);
+
+  // ── Core: compute timestamp position and start playing ──────────────────
+  const syncAndPlay = useCallback(() => {
+    const rt    = radioTracksRef.current;
+    const epoch = startEpochRef.current;
+    const total = totalDurationRef.current;
+    if (!rt.length || !epoch || !total) return;
+
+    const pos = calcRadioPosition(rt, epoch, total);
+    if (!pos) return;
+
+    setRadioPosition(pos);
+    setCurrentIndex(pos.trackIdx);
+
+    const track = rt[pos.trackIdx];
+    const src = resolveAudioUrl(track.audioUrl);
+    console.log(`[radio] syncAndPlay → track[${pos.trackIdx}] "${track.title}" @ ${pos.offsetSec.toFixed(1)}s`);
+    startPlaying(src, pos.offsetSec);
+  }, [startPlaying]);
+
+  // ── Auto-play on load: attempt once data arrives ────────────────────────
+  const autoPlayTriedRef = useRef(false);
   useEffect(() => {
-    const handleFirstInteraction = () => {
+    if (autoPlayTriedRef.current) return;
+    if (!radioTracks.length || !startEpoch) return;
+    autoPlayTriedRef.current = true;
+
+    const timer = setTimeout(() => {
+      setIsSyncedRadio(true);
+      isSyncedRef.current = true;
+
+      const pos = calcRadioPosition(
+        radioTracksRef.current,
+        startEpochRef.current!,
+        totalDurationRef.current
+      );
+      if (!pos) return;
+
+      setRadioPosition(pos);
+      setCurrentIndex(pos.trackIdx);
+
+      const track = radioTracksRef.current[pos.trackIdx];
+      const src = resolveAudioUrl(track.audioUrl);
+      const absoluteSrc = toAbsolute(src);
+
       const el = audioRef.current;
-      if (el && isLiveStream && streamUrl && !isPlaying) {
-         void el.play().then(() => {
-           setPlaying(true);
-           document.removeEventListener("click", handleFirstInteraction);
-           document.removeEventListener("keydown", handleFirstInteraction);
-         }).catch(() => {
-           // Silently ignore till next interaction if restricted
-         });
+      if (!el) return;
+
+      // Set src & load
+      if (el.src !== absoluteSrc) {
+        el.src = absoluteSrc;
+        el.preload = "auto";
+        el.load();
       }
+      el.volume = volumeRef.current;
+
+      // Attempt play (with correct seek)
+      const tryPlay = () => {
+        if (el.seekable.length > 0 && pos.offsetSec > 0) {
+          el.currentTime = Math.min(pos.offsetSec, el.seekable.end(0));
+        }
+        void el.play()
+          .then(() => {
+            setPlaying(true);
+            setNeedsGesture(false);
+          })
+          .catch(() => {
+            // Browser blocked autoplay — show "tap to play" prompt
+            setNeedsGesture(true);
+          });
+      };
+
+      if (el.readyState >= 2) {
+        tryPlay();
+      } else {
+        el.addEventListener("canplay", tryPlay, { once: true });
+      }
+    }, 600);
+
+    return () => clearTimeout(timer);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [radioTracks, startEpoch]);
+
+  // ── First-gesture: play when user first interacts ───────────────────────
+  useEffect(() => {
+    if (!needsGesture) return;
+    const handler = () => {
+      setNeedsGesture(false);
+      // Re-calculate position at gesture time so we're accurate
+      const rt    = radioTracksRef.current;
+      const epoch = startEpochRef.current;
+      const total = totalDurationRef.current;
+      if (!rt.length || !epoch || !total) return;
+      const pos = calcRadioPosition(rt, epoch, total);
+      if (!pos) return;
+      const el = audioRef.current;
+      if (!el) return;
+      const src = toAbsolute(resolveAudioUrl(rt[pos.trackIdx].audioUrl));
+      if (el.src !== src) {
+        el.src = src;
+        el.preload = "auto";
+        el.load();
+      }
+      el.volume = volumeRef.current;
+      if (el.seekable.length > 0 && pos.offsetSec > 0) {
+        el.currentTime = Math.min(pos.offsetSec, el.seekable.end(0));
+      }
+      void el.play().then(() => setPlaying(true));
     };
-
-    document.addEventListener("click", handleFirstInteraction);
-    document.addEventListener("keydown", handleFirstInteraction);
-
+    document.addEventListener("click",     handler, { once: true });
+    document.addEventListener("touchend",  handler, { once: true });
+    document.addEventListener("keydown",   handler, { once: true });
     return () => {
-      document.removeEventListener("click", handleFirstInteraction);
-      document.removeEventListener("keydown", handleFirstInteraction);
+      document.removeEventListener("click",    handler);
+      document.removeEventListener("touchend", handler);
+      document.removeEventListener("keydown",  handler);
     };
-  }, [isPlaying, isLiveStream, streamUrl]);
+  }, [needsGesture]);
 
+  // ── Persist volume ──────────────────────────────────────────────────────
   useEffect(() => {
     localStorage.setItem(LS_VOL, String(volume));
     const el = audioRef.current;
     if (el) el.volume = volume;
   }, [volume]);
 
-  const syncRadioToNow = useCallback((items: TrackItem[]) => {
-    if (!items.length) return { index: 0, offset: 0 };
-    const validItems = items.filter((i) => (i.durationSec ?? 0) > 0);
-    if (!validItems.length) return { index: 0, offset: 0 };
-
-    const total = validItems.reduce((acc, t) => acc + (t.durationSec || 0), 0);
-    const nowSec = Math.floor(Date.now() / 1000);
-    const loopPos = nowSec % total;
-
-    let acc = 0;
-    for (let i = 0; i < validItems.length; i++) {
-      const d = validItems[i].durationSec || 0;
-      if (acc + d > loopPos) {
-        const originalIndex = items.findIndex((orig) => orig.id === validItems[i].id);
-        return { index: originalIndex >= 0 ? originalIndex : 0, offset: loopPos - acc };
-      }
-      acc += d;
-    }
-    return { index: 0, offset: 0 };
-  }, []);
-
-  const setTracks = useCallback((t: TrackItem[]) => {
-    setTracksState(t);
-  }, []);
+  // ── Public track API ────────────────────────────────────────────────────
+  const setTracks = useCallback((t: TrackItem[]) => setTracksState(t), []);
 
   const loadPlaylist = useCallback(
-    (items: TrackItem[]) => {
+    (items: TrackItem[], startIndex = 0) => {
       setTracksState(items);
-      const { index, offset } = syncRadioToNow(items);
-      radioStartOffset.current = offset;
-      setCurrentIndex(index);
-    },
-    [syncRadioToNow]
+      setCurrentIndex(Math.max(0, Math.min(items.length - 1, startIndex)));
+    }, []
   );
 
-  const playIndex = useCallback(
-    () => {
-      if (isLiveStream) {
-        setIsLiveStream(false);
-      }
-      if (!tracks.length) return;
-      const { index, offset } = syncRadioToNow(tracks);
-      
-      const el = audioRef.current;
-      if (index === currentIndex && el && !isLiveStream) {
-        el.currentTime = offset;
-        setPlaying(true);
-        void el.play().catch(() => setPlaying(false));
-      } else {
-        radioStartOffset.current = offset;
-        setCurrentIndex(index);
-        setPlaying(true);
-      }
-    },
-    [tracks, currentIndex, syncRadioToNow, isLiveStream]
+  const playAtIndex = useCallback(
+    (idx: number) => {
+      const t = tracksRef.current;
+      if (!t.length) return;
+      const safeIdx = Math.max(0, Math.min(t.length - 1, idx));
+      setIsSyncedRadio(false);
+      isSyncedRef.current = false;
+      setCurrentIndex(safeIdx);
+      startPlaying(resolveAudioUrl(t[safeIdx].audioUrl));
+    }, [startPlaying]
   );
 
   const playNext = useCallback(() => {
-    if (isLiveStream || !tracks.length) return;
-    const { index, offset } = syncRadioToNow(tracks);
-    radioStartOffset.current = offset;
-    setCurrentIndex(index);
-  }, [tracks, syncRadioToNow, isLiveStream]);
+    if (isSyncedRef.current) return;
+    const t = tracksRef.current;
+    if (!t.length) return;
+    playAtIndex((currentIndexRef.current + 1) % t.length);
+  }, [playAtIndex]);
 
   const playPrev = useCallback(() => {
-    playNext();
-  }, [playNext]);
+    const t = tracksRef.current;
+    if (!t.length || isSyncedRef.current) return;
+    playAtIndex((currentIndexRef.current - 1 + t.length) % t.length);
+  }, [playAtIndex]);
+
+  const playIndex = useCallback(
+    (targetIndex?: number) => {
+      const t = tracksRef.current;
+      if (!t.length) return;
+      const idx = targetIndex !== undefined ? targetIndex : currentIndexRef.current;
+      playAtIndex(idx);
+    }, [playAtIndex]
+  );
 
   const togglePlay = useCallback(() => {
     const el = audioRef.current;
-    if (!el || (!current && !isLiveStream && !streamUrl)) return;
-    if (isPlaying) {
+    if (!el) return;
+
+    if (isPlayingRef.current) {
+      if (cancelRef.current) { cancelRef.current(); cancelRef.current = null; }
       el.pause();
       setPlaying(false);
     } else {
+      if (isSyncedRef.current) {
+        syncAndPlay();
+        return;
+      }
+      const hasSource = el.readyState > 0 || el.networkState === 2;
+      if (!hasSource) {
+        const t = tracksRef.current;
+        if (t.length) startPlaying(resolveAudioUrl(t[currentIndexRef.current].audioUrl));
+        return;
+      }
+      el.volume = volumeRef.current;
       void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
     }
-  }, [current, isPlaying, isLiveStream, streamUrl]);
+  }, [syncAndPlay, startPlaying]);
 
-  const toggleLiveStream = useCallback(() => {
-    if (!streamUrl) return;
-    setIsLiveStream((prev) => {
-      const next = !prev;
-      setPlaying(next);
-      return next;
-    });
-  }, [streamUrl]);
+  /**
+   * toggleRadio — Tune In / Stop. Must be called inside a user gesture.
+   */
+  const toggleRadio = useCallback(() => {
+    if (isSyncedRef.current) {
+      // Stop
+      if (cancelRef.current) { cancelRef.current(); cancelRef.current = null; }
+      audioRef.current?.pause();
+      setPlaying(false);
+      setIsSyncedRadio(false);
+      isSyncedRef.current = false;
+      setRadioPosition(null);
+    } else {
+      // Tune in
+      setIsSyncedRadio(true);
+      isSyncedRef.current = true;
+      syncAndPlay();
+    }
+  }, [syncAndPlay]);
 
   const setVolume = useCallback((v: number) => {
     setVolumeState(Math.min(1, Math.max(0, v)));
   }, []);
 
-  // Sync Audio Element standard Logic (Tracks)
+  // ── Track-end handler ───────────────────────────────────────────────────
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    
-    if (isLiveStream && streamUrl) {
-      el.pause();
-      el.src = streamUrl;
-      el.load();
-      if (isPlaying) {
-        void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-      }
-      return;
-    }
 
-    if (!current) return;
-    el.pause();
-    el.src = isGdriveUrl(current.audioUrl)
-      ? gdriveAudioUrl(current.audioUrl)
-      : current.audioUrl;
-    el.load();
-
-    const applyOffset = () => {
-      if (radioStartOffset.current !== null && !isLiveStream) {
-        el.currentTime = radioStartOffset.current;
-        radioStartOffset.current = null;
-      }
-      if (isPlaying && !isLiveStream) {
-        void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
-      }
-      el.removeEventListener("canplay", applyOffset);
-    };
-
-    el.addEventListener("canplay", applyOffset);
-
-    return () => {
-      el.removeEventListener("canplay", applyOffset);
-    };
-  }, [current?.id, current?.audioUrl, isLiveStream, streamUrl]);
-
-  // Handle Event listeners
-  useEffect(() => {
-    const el = audioRef.current;
-    if (!el) return;
     const onEnded = () => {
-      if (!isLiveStream) playNext();
+      if (isSyncedRef.current) {
+        syncAndPlay(); // recalculate from wall clock (handles drift)
+      } else {
+        playNext();
+      }
     };
-    const onPlay = () => setPlaying(true);
+    const onPlay  = () => setPlaying(true);
     const onPause = () => setPlaying(false);
-    el.addEventListener("ended", onEnded);
-    el.addEventListener("play", onPlay);
-    el.addEventListener("pause", onPause);
-    return () => {
-      el.removeEventListener("ended", onEnded);
-      el.removeEventListener("play", onPlay);
-      el.removeEventListener("pause", onPause);
+    const onError = () => {
+      console.error("[audio] element error:", audioRef.current?.error?.message);
+      setPlaying(false);
+      // Auto-retry radio after error
+      if (isSyncedRef.current) {
+        setTimeout(() => {
+          if (isSyncedRef.current) syncAndPlay();
+        }, 3000);
+      }
     };
-  }, [playNext, isLiveStream]);
 
+    el.addEventListener("ended",  onEnded);
+    el.addEventListener("play",   onPlay);
+    el.addEventListener("pause",  onPause);
+    el.addEventListener("error",  onError);
+    return () => {
+      el.removeEventListener("ended",  onEnded);
+      el.removeEventListener("play",   onPlay);
+      el.removeEventListener("pause",  onPause);
+      el.removeEventListener("error",  onError);
+    };
+  }, [syncAndPlay, playNext]);
+
+  // ── Periodic drift correction every 30 s ───────────────────────────────
+  useEffect(() => {
+    if (!isSyncedRadio) return;
+    const id = setInterval(() => {
+      const el = audioRef.current;
+      if (!el || !isSyncedRef.current || !isPlayingRef.current) return;
+      const rt    = radioTracksRef.current;
+      const epoch = startEpochRef.current;
+      const total = totalDurationRef.current;
+      if (!rt.length || !epoch || !total) return;
+
+      const pos = calcRadioPosition(rt, epoch, total);
+      if (!pos) return;
+      const targetTrack  = rt[pos.trackIdx];
+      const currentTrack = rt[currentIndexRef.current];
+
+      setRadioPosition(pos);
+
+      if (targetTrack.id !== currentTrack?.id) {
+        // Track boundary crossed — load next track
+        syncAndPlay();
+      } else {
+        // Correct time drift > 4 s
+        const drift = Math.abs(el.currentTime - pos.offsetSec);
+        if (drift > 4) {
+          console.log(`[radio] correcting drift of ${drift.toFixed(1)}s`);
+          el.currentTime = Math.min(pos.offsetSec, el.seekable.end?.(0) ?? pos.offsetSec);
+        }
+      }
+    }, 30_000);   // every 30 s instead of 60 s
+    return () => clearInterval(id);
+  }, [isSyncedRadio, syncAndPlay]);
+
+  // ── UI position ticker — update every second ────────────────────────────
+  useEffect(() => {
+    if (!isSyncedRadio) return;
+    const id = setInterval(() => {
+      const rt    = radioTracksRef.current;
+      const epoch = startEpochRef.current;
+      const total = totalDurationRef.current;
+      if (rt.length && epoch && total) {
+        setRadioPosition(calcRadioPosition(rt, epoch, total));
+      }
+    }, 1000);
+    return () => clearInterval(id);
+  }, [isSyncedRadio]);
+
+  // ── Context value ───────────────────────────────────────────────────────
   const value = useMemo(
     () => ({
       tracks,
       setTracks,
       current,
-      currentIndex,
+      currentIndex: isSyncedRadio ? (radioPosition?.trackIdx ?? 0) : currentIndex,
       isPlaying,
       volume,
       loadPlaylist,
@@ -271,32 +603,29 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       playNext,
       playPrev,
       audioRef,
-      streamUrl,
-      isLiveStream,
-      toggleLiveStream,
+      radioTracks,
+      startEpoch,
+      totalDuration,
+      isSyncedRadio,
+      radioPosition,
+      toggleRadio,
+      needsGesture,
+      isLiveStream:    isSyncedRadio,
+      streamUrl:       radioTracks.length ? "synced" : null,
+      toggleLiveStream: toggleRadio,
     }),
     [
-      tracks,
-      setTracks,
-      current,
-      currentIndex,
-      isPlaying,
-      volume,
-      loadPlaylist,
-      playIndex,
-      togglePlay,
-      setVolume,
-      playNext,
-      playPrev,
-      streamUrl,
-      isLiveStream,
-      toggleLiveStream,
+      tracks, setTracks, current, currentIndex, isPlaying, volume,
+      loadPlaylist, playIndex, togglePlay, setVolume, playNext, playPrev,
+      radioTracks, startEpoch, totalDuration, isSyncedRadio, radioPosition,
+      toggleRadio, needsGesture,
     ]
   );
 
   return (
     <Ctx.Provider value={value}>
-      <audio ref={audioRef} preload="metadata" className="hidden" />
+      {/* preload="auto" so the browser buffers the stream immediately */}
+      <audio ref={audioRef} preload="auto" className="hidden" crossOrigin="anonymous" />
       {children}
     </Ctx.Provider>
   );

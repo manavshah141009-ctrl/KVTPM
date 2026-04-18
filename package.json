@@ -12,7 +12,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "seed:admin": "node scripts/seed-admin.mjs"
+    "seed:admin": "node scripts/seed-admin.mjs",
+    "radio": "node radio-worker/index.mjs"
   },
   "dependencies": {
     "@aws-sdk/client-s3": "^3.758.0",

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Playfair_Display, Source_Sans_3 } from "next/font/google";
 import "./globals.css";
 import { AudioProvider } from "@/contexts/audio-context";
+import { LanguageProvider } from "@/contexts/language-context";
 import { ShellLayout } from "@/components/shell-layout";
 
 const playfair = Playfair_Display({
@@ -51,9 +52,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable}`}>
       <body className="font-sans min-h-dvh">
-        <AudioProvider>
-          <ShellLayout>{children}</ShellLayout>
-        </AudioProvider>
+        <LanguageProvider>
+          <AudioProvider>
+            <ShellLayout>{children}</ShellLayout>
+          </AudioProvider>
+        </LanguageProvider>
       </body>
     </html>
   );
