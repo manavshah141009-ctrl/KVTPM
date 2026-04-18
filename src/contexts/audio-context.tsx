@@ -36,6 +36,10 @@ type AudioCtx = {
   playNext: () => void;
   playPrev: () => void;
   audioRef: React.RefObject<HTMLAudioElement | null>;
+  // Live Radio extensions
+  streamUrl: string | null;
+  isLiveStream: boolean;
+  toggleLiveStream: () => void;
 };
 
 const Ctx = createContext<AudioCtx | null>(null);
@@ -49,16 +53,51 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [isPlaying, setPlaying] = useState(false);
   const [volume, setVolumeState] = useState(0.85);
 
+  const [streamUrl, setStreamUrl] = useState<string | null>(null);
+  const [isLiveStream, setIsLiveStream] = useState(true);
+
   const current = tracks[currentIndex] ?? null;
   const radioStartOffset = useRef<number | null>(null);
 
   useEffect(() => {
+    fetch("/api/radio")
+      .then((r) => r.json())
+      .then((d) => {
+        setStreamUrl(d.streamUrl || null);
+        if (d.streamUrl) setIsLiveStream(true);
+      })
+      .catch((err) => console.error("Failed to load stream url:", err));
+
     const v = localStorage.getItem(LS_VOL);
     if (v != null) {
       const n = parseFloat(v);
       if (!Number.isNaN(n)) setVolumeState(Math.min(1, Math.max(0, n)));
     }
   }, []);
+
+  // Browser Autoplay Workaround (play on first interaction)
+  useEffect(() => {
+    const handleFirstInteraction = () => {
+      const el = audioRef.current;
+      if (el && isLiveStream && streamUrl && !isPlaying) {
+         void el.play().then(() => {
+           setPlaying(true);
+           document.removeEventListener("click", handleFirstInteraction);
+           document.removeEventListener("keydown", handleFirstInteraction);
+         }).catch(() => {
+           // Silently ignore till next interaction if restricted
+         });
+      }
+    };
+
+    document.addEventListener("click", handleFirstInteraction);
+    document.addEventListener("keydown", handleFirstInteraction);
+
+    return () => {
+      document.removeEventListener("click", handleFirstInteraction);
+      document.removeEventListener("keydown", handleFirstInteraction);
+    };
+  }, [isPlaying, isLiveStream, streamUrl]);
 
   useEffect(() => {
     localStorage.setItem(LS_VOL, String(volume));
@@ -68,8 +107,6 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const syncRadioToNow = useCallback((items: TrackItem[]) => {
     if (!items.length) return { index: 0, offset: 0 };
-    // Only use tracks that have a duration for the time calculation.
-    // If a track lacks duration, it breaks the maths.
     const validItems = items.filter((i) => (i.durationSec ?? 0) > 0);
     if (!validItems.length) return { index: 0, offset: 0 };
 
@@ -105,13 +142,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
 
   const playIndex = useCallback(
     () => {
-      // Disabled specific index playing for Radio mode. 
-      // Instead, we just sync to live.
+      if (isLiveStream) {
+        setIsLiveStream(false);
+      }
       if (!tracks.length) return;
       const { index, offset } = syncRadioToNow(tracks);
       
       const el = audioRef.current;
-      if (index === currentIndex && el) {
+      if (index === currentIndex && el && !isLiveStream) {
         el.currentTime = offset;
         setPlaying(true);
         void el.play().catch(() => setPlaying(false));
@@ -121,40 +159,60 @@ export function AudioProvider({ children }: { children: ReactNode }) {
         setPlaying(true);
       }
     },
-    [tracks, currentIndex, syncRadioToNow]
+    [tracks, currentIndex, syncRadioToNow, isLiveStream]
   );
 
-  // Play next just resyncs naturally based on the new clock time.
   const playNext = useCallback(() => {
-    if (!tracks.length) return;
+    if (isLiveStream || !tracks.length) return;
     const { index, offset } = syncRadioToNow(tracks);
     radioStartOffset.current = offset;
     setCurrentIndex(index);
-  }, [tracks, syncRadioToNow]);
+  }, [tracks, syncRadioToNow, isLiveStream]);
 
   const playPrev = useCallback(() => {
-    // Disabled in radio mode, just resync
     playNext();
   }, [playNext]);
 
   const togglePlay = useCallback(() => {
     const el = audioRef.current;
-    if (!el || !current) return;
+    if (!el || (!current && !isLiveStream && !streamUrl)) return;
     if (isPlaying) {
       el.pause();
       setPlaying(false);
     } else {
       void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
     }
-  }, [current, isPlaying]);
+  }, [current, isPlaying, isLiveStream, streamUrl]);
+
+  const toggleLiveStream = useCallback(() => {
+    if (!streamUrl) return;
+    setIsLiveStream((prev) => {
+      const next = !prev;
+      setPlaying(next);
+      return next;
+    });
+  }, [streamUrl]);
 
   const setVolume = useCallback((v: number) => {
     setVolumeState(Math.min(1, Math.max(0, v)));
   }, []);
 
+  // Sync Audio Element standard Logic (Tracks)
   useEffect(() => {
     const el = audioRef.current;
-    if (!el || !current) return;
+    if (!el) return;
+    
+    if (isLiveStream && streamUrl) {
+      el.pause();
+      el.src = streamUrl;
+      el.load();
+      if (isPlaying) {
+        void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
+      }
+      return;
+    }
+
+    if (!current) return;
     el.pause();
     el.src = isGdriveUrl(current.audioUrl)
       ? gdriveAudioUrl(current.audioUrl)
@@ -162,11 +220,11 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     el.load();
 
     const applyOffset = () => {
-      if (radioStartOffset.current !== null) {
+      if (radioStartOffset.current !== null && !isLiveStream) {
         el.currentTime = radioStartOffset.current;
         radioStartOffset.current = null;
       }
-      if (isPlaying) {
+      if (isPlaying && !isLiveStream) {
         void el.play().then(() => setPlaying(true)).catch(() => setPlaying(false));
       }
       el.removeEventListener("canplay", applyOffset);
@@ -177,12 +235,15 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     return () => {
       el.removeEventListener("canplay", applyOffset);
     };
-  }, [current?.id, current?.audioUrl]);
+  }, [current?.id, current?.audioUrl, isLiveStream, streamUrl]);
 
+  // Handle Event listeners
   useEffect(() => {
     const el = audioRef.current;
     if (!el) return;
-    const onEnded = () => playNext();
+    const onEnded = () => {
+      if (!isLiveStream) playNext();
+    };
     const onPlay = () => setPlaying(true);
     const onPause = () => setPlaying(false);
     el.addEventListener("ended", onEnded);
@@ -193,7 +254,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       el.removeEventListener("play", onPlay);
       el.removeEventListener("pause", onPause);
     };
-  }, [playNext]);
+  }, [playNext, isLiveStream]);
 
   const value = useMemo(
     () => ({
@@ -210,6 +271,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       playNext,
       playPrev,
       audioRef,
+      streamUrl,
+      isLiveStream,
+      toggleLiveStream,
     }),
     [
       tracks,
@@ -224,6 +288,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       setVolume,
       playNext,
       playPrev,
+      streamUrl,
+      isLiveStream,
+      toggleLiveStream,
     ]
   );
 

@@ -14,9 +14,13 @@ export function AudioPlayerBar() {
     playNext,
     playPrev,
     tracks,
+    isLiveStream,
+    streamUrl,
   } = useAudio();
 
-  if (!current && tracks.length === 0) return null;
+  if (!current && tracks.length === 0 && !streamUrl) return null;
+
+  const showLiveUI = isLiveStream;
 
   return (
     <motion.div
@@ -26,42 +30,58 @@ export function AudioPlayerBar() {
     >
       <div className="max-w-6xl mx-auto px-3 py-2 md:py-3 flex items-center gap-3 md:gap-4">
         <div className="min-w-0 flex-1">
-          <p className="font-serif text-ink truncate text-sm md:text-base">{current?.title ?? "—"}</p>
-          {current?.artist ? (
-            <p className="text-xs text-ink/60 truncate font-sans">{current.artist}</p>
+          {showLiveUI ? (
+            <>
+              <p className="font-serif text-ink truncate text-sm md:text-base flex items-center gap-2">
+                <span className="shrink-0 w-2 h-2 rounded-full bg-red-500 animate-pulse-soft"></span>
+                Live 24/7 Radio
+              </p>
+              <p className="text-xs text-ink/60 truncate font-sans">KarVicharTohPamm Broadcast</p>
+            </>
           ) : (
-            <p className="text-xs text-ink/45 font-sans">KarVicharTohPamm · continuous listen</p>
+            <>
+              <p className="font-serif text-ink truncate text-sm md:text-base">{current?.title ?? "—"}</p>
+              {current?.artist ? (
+                <p className="text-xs text-ink/60 truncate font-sans">{current.artist}</p>
+              ) : (
+                <p className="text-xs text-ink/45 font-sans">KarVicharTohPamm · continuous listen</p>
+              )}
+            </>
           )}
         </div>
 
         <div className="flex items-center gap-1 md:gap-2 shrink-0">
-          <button
-            type="button"
-            aria-label="Previous"
-            onClick={playPrev}
-            disabled={!tracks.length}
-            className="w-9 h-9 rounded-full border border-ink/10 text-ink/70 hover:bg-white/50 disabled:opacity-40"
-          >
-            ‹
-          </button>
+          {!showLiveUI && (
+            <button
+              type="button"
+              aria-label="Previous"
+              onClick={playPrev}
+              disabled={!tracks.length}
+              className="w-9 h-9 rounded-full border border-ink/10 text-ink/70 hover:bg-white/50 disabled:opacity-40"
+            >
+              ‹
+            </button>
+          )}
           <button
             type="button"
             aria-label={isPlaying ? "Pause" : "Play"}
             onClick={togglePlay}
-            disabled={!current}
+            disabled={(!current && !showLiveUI)}
             className="w-11 h-11 md:w-12 md:h-12 rounded-full bg-saffron text-white shadow-glow-sm flex items-center justify-center text-xl hover:bg-saffron-dim disabled:opacity-40"
           >
             {isPlaying ? "❚❚" : "▶"}
           </button>
-          <button
-            type="button"
-            aria-label="Next"
-            onClick={playNext}
-            disabled={!tracks.length}
-            className="w-9 h-9 rounded-full border border-ink/10 text-ink/70 hover:bg-white/50 disabled:opacity-40"
-          >
-            ›
-          </button>
+          {!showLiveUI && (
+            <button
+              type="button"
+              aria-label="Next"
+              onClick={playNext}
+              disabled={!tracks.length}
+              className="w-9 h-9 rounded-full border border-ink/10 text-ink/70 hover:bg-white/50 disabled:opacity-40"
+            >
+              ›
+            </button>
+          )}
         </div>
 
         <label className="hidden sm:flex items-center gap-2 w-28 md:w-36 shrink-0">
@@ -82,7 +102,7 @@ export function AudioPlayerBar() {
           href="/listen"
           className="text-xs font-sans text-saffron-dim hover:text-saffron hidden sm:inline shrink-0"
         >
-          Queue
+          {showLiveUI ? "Live" : "Queue"}
         </Link>
       </div>
     </motion.div>

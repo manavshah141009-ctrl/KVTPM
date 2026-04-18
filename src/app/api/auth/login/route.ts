@@ -27,7 +27,7 @@ export async function POST(req: Request) {
         return NextResponse.json(
           {
             error:
-              "No admin exists in this database. Check MONGODB_URI, then seed: npm run seed:admin -- you@email.com YourPassword",
+              "No admin exists in this database. Check MONGODB_URI/MONGO_URI, then seed: npm run seed:admin -- you@email.com YourPassword",
           },
           { status: 401 }
         );

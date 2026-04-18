@@ -15,10 +15,10 @@ const cache: MongooseCache = global.mongooseCache ?? { conn: null, promise: null
 global.mongooseCache = cache;
 
 export async function dbConnect(): Promise<typeof mongoose> {
-  const uri = process.env.MONGODB_URI;
+  const uri = process.env.MONGODB_URI || process.env.MONGO_URI;
   if (!uri) {
-    console.error("[db] MONGODB_URI is not defined. Available env keys:", Object.keys(process.env).filter(k => k.startsWith("MONGO") || k.startsWith("NEXT") || k.startsWith("JWT")));
-    throw new Error("Please define MONGODB_URI in your environment");
+    console.error("[db] MongoDB URI is not defined. Available env keys:", Object.keys(process.env).filter(k => k.startsWith("MONGO") || k.startsWith("NEXT") || k.startsWith("JWT")));
+    throw new Error("Please define MONGODB_URI or MONGO_URI in your environment");
   }
   if (cache.conn) return cache.conn;
   if (!cache.promise) {
