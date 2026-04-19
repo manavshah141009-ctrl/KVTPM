@@ -17,9 +17,9 @@ export function LogoutButton() {
         router.replace("/admin/login");
         router.refresh();
       }}
-      className="text-xs text-ink/50 hover:text-ink underline-offset-2 hover:underline"
+      className="text-xs text-ink/45 hover:text-red-600 font-sans transition-colors disabled:opacity-50"
     >
-      Sign out
+      {busy ? "Signing out…" : "Sign out"}
     </button>
   );
 }
