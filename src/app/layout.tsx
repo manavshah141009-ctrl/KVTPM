@@ -4,6 +4,7 @@ import "./globals.css";
 import { AudioProvider } from "@/contexts/audio-context";
 import { LanguageProvider } from "@/contexts/language-context";
 import { ShellLayout } from "@/components/shell-layout";
+import { Analytics } from "@vercel/analytics/next";
 
 const playfair = Playfair_Display({
   subsets: ["latin"],
@@ -57,6 +58,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
             <ShellLayout>{children}</ShellLayout>
           </AudioProvider>
         </LanguageProvider>
+        <Analytics />
       </body>
     </html>
   );
