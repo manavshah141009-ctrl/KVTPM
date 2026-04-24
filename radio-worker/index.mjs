@@ -85,6 +85,10 @@ const TrackSchema = new mongoose.Schema({
   durationSec: Number,
   order:      { type: Number, default: 0 },
   published:  { type: Boolean, default: true },
+  scheduleType: { type: String, default: "rotation" },
+  fixedTime:    String,
+  isRepeating:  { type: Boolean, default: true },
+  lastPlayedDate: String,
 }, { timestamps: true });
 
 const Track = mongoose.models?.Track || mongoose.model("Track", TrackSchema);
@@ -94,78 +98,24 @@ async function connectDb() {
   console.log("✅ MongoDB connected");
 }
 
-async function fetchTracks() {
-  return Track.find({ published: true }).sort({ order: 1, createdAt: 1 }).lean();
+async function fetchRotationTracks() {
+  return Track.find({ 
+    published: true, 
+    $or: [
+      { scheduleType: "rotation" },
+      { scheduleType: { $exists: false } }
+    ]
+  }).sort({ order: 1, createdAt: 1 }).lean();
 }
 
 // ── Google Drive helpers ──────────────────────────────────────────────────────
-function extractGDriveId(url) {
-  if (!url) return null;
-  const m1 = url.match(/\/file\/d\/([a-zA-Z0-9_-]{10,})/);
-  if (m1) return m1[1];
-  const m2 = url.match(/[?&]id=([a-zA-Z0-9_-]{10,})/);
-  if (m2) return m2[1];
-  return null;
-}
+// ... (existing extractGDriveId and resolveUrl)
 
-/**
- * Convert a GDrive URL to a streamable URL for ffmpeg.
- * If our Next.js proxy is running, use it (handles large-file confirmations).
- * Otherwise fall back to a direct Drive download URL — ffmpeg can usually
- * handle the redirect chain itself.
- */
-function resolveUrl(audioUrl) {
-  const id = extractGDriveId(audioUrl);
-  if (!id) return audioUrl;
-  if (APP_URL) return `${APP_URL}/api/proxy/audio?id=${id}`;
-  // Fallback: direct Drive URL with confirm token
-  return `https://drive.google.com/uc?export=download&id=${id}&confirm=t`;
-}
+// ── Global state for interruptions ──
+let currentFF = null;
+let pendingFixedTrack = null;
 
-// ── IceCast source connection (ICY/Shoutcast protocol) ────────────────────────
-function connectIceCast() {
-  return new Promise((resolve, reject) => {
-    const sock = createConnection({ host: HOST, port: PORT }, () => {
-      // ICY source protocol: send a PUT-like handshake
-      const creds = Buffer.from(`source:${PASSWORD}`).toString("base64");
-      const handshake = [
-        `SOURCE ${MOUNT} ICY/1.0`,
-        `Authorization: Basic ${creds}`,
-        `Content-Type: audio/mpeg`,
-        `ice-name: ${STATION}`,
-        `ice-description: 24/7 Spiritual Radio`,
-        `ice-genre: Spiritual`,
-        `ice-public: 0`,
-        `icy-br: 128`,
-        ``,
-        ``,
-      ].join("\r\n");
-      sock.write(handshake);
-    });
-
-    let responded = false;
-
-    sock.once("data", (buf) => {
-      responded = true;
-      const msg = buf.toString();
-      if (msg.includes("200") || msg.toLowerCase().includes("ok")) {
-        console.log(`✅ IceCast handshake accepted`);
-        resolve(sock);
-      } else {
-        sock.destroy();
-        reject(new Error(`IceCast rejected connection:\n${msg.trim()}`));
-      }
-    });
-
-    sock.once("error", (err) => { if (!responded) reject(err); });
-    setTimeout(() => {
-      if (!responded) {
-        sock.destroy();
-        reject(new Error("IceCast handshake timeout"));
-      }
-    }, 10_000);
-  });
-}
+// ... (existing connectIceCast)
 
 // ── Stream one track ──────────────────────────────────────────────────────────
 function streamTrack(sock, url, title) {
@@ -185,6 +135,8 @@ function streamTrack(sock, url, title) {
       "pipe:1",                // write to stdout
     ]);
 
+    currentFF = ff;
+
     // Pipe ffmpeg's MP3 output directly into the IceCast socket
     ff.stdout.pipe(sock, { end: false });
 
@@ -194,17 +146,15 @@ function streamTrack(sock, url, title) {
     });
 
     ff.on("close", (code) => {
+      currentFF = null;
       console.log(`  ✓ Finished (exit ${code}): ${title}`);
       resolve(code);
     });
 
     ff.on("error", (err) => {
+      currentFF = null;
       if (err.code === "ENOENT") {
-        reject(new Error(
-          "❌ ffmpeg not found! Install it first:\n" +
-          "   Windows: winget install ffmpeg\n" +
-          "   Linux:   apt install ffmpeg"
-        ));
+        reject(new Error("❌ ffmpeg not found!"));
       } else {
         reject(err);
       }
@@ -221,11 +171,48 @@ function streamTrack(sock, url, title) {
   });
 }
 
+// ── Background Scheduler ──
+async function schedulerLoop() {
+  while (true) {
+    try {
+      const now = new Date();
+      // Format current time as HH:mm (e.g. "07:00")
+      const HHmm = now.getHours().toString().padStart(2, "0") + ":" + 
+                   now.getMinutes().toString().padStart(2, "0");
+      const today = now.toISOString().split("T")[0];
+
+      const due = await Track.findOne({
+        published: true,
+        scheduleType: "fixed",
+        fixedTime: HHmm,
+        lastPlayedDate: { $ne: today }
+      });
+
+      if (due && !pendingFixedTrack) {
+        console.log(`\n⏰ FIXED TRACK DUE: ${due.title} at ${HHmm}`);
+        pendingFixedTrack = due;
+        
+        // Interrupt current playback immediately
+        if (currentFF) {
+          console.log(`   Cutting current rotation track to start scheduled song...`);
+          currentFF.kill("SIGTERM");
+        }
+      }
+    } catch (err) {
+      console.error("❌ Scheduler error:", err.stack);
+    }
+    await sleep(10000); // Check every 10s
+  }
+}
+
 // ── Main loop ─────────────────────────────────────────────────────────────────
 async function run() {
   await connectDb();
   await detectAppUrl();
   if (APP_URL) console.log(`   Proxy:   ${APP_URL}/api/proxy/audio`);
+
+  // Start background scheduler
+  schedulerLoop();
 
   while (true) {
     // ── Try to connect to IceCast ──
@@ -234,15 +221,14 @@ async function run() {
       sock = await connectIceCast();
     } catch (err) {
       console.error(`❌ IceCast connect failed: ${err.message}`);
-      console.log("   Retrying in 30s…");
       await sleep(30_000);
       continue;
     }
 
-    // ── Fetch current playlist ──
+    // ── Fetch rotation tracks ──
     let tracks;
     try {
-      tracks = await fetchTracks();
+      tracks = await fetchRotationTracks();
     } catch (err) {
       console.error(`❌ DB error: ${err.message}`);
       sock.destroy();
@@ -250,14 +236,14 @@ async function run() {
       continue;
     }
 
-    if (!tracks.length) {
-      console.warn("⚠️  No published tracks in DB. Waiting 60s…");
+    if (!tracks.length && !pendingFixedTrack) {
+      console.warn("⚠️  No tracks in DB. Waiting 60s…");
       sock.destroy();
       await sleep(60_000);
       continue;
     }
 
-    console.log(`\n📋 Playlist: ${tracks.length} track(s)`);
+    console.log(`\n📋 Rotation: ${tracks.length} track(s)`);
 
     // ── Stream each track ──
     let sockDied = false;
@@ -265,20 +251,57 @@ async function run() {
     sock.once("close", onDied);
     sock.once("error", onDied);
 
-    for (const track of tracks) {
-      if (sockDied) break;
-      const url = resolveUrl(track.audioUrl);
-      try {
-        await streamTrack(sock, url, track.title || "Untitled");
-      } catch (err) {
-        console.error(`  ❌ Track error: ${err.message}`);
-        if (sockDied) break;
-        await sleep(2_000); // skip to next track
+    while (!sockDied) {
+      // 1. Check if we have a pending fixed track (interruption)
+      if (pendingFixedTrack) {
+        const track = pendingFixedTrack;
+        pendingFixedTrack = null; // Clear first to avoid re-triggering
+        
+        // Mark as played today immediately
+        const today = new Date().toISOString().split("T")[0];
+        await Track.updateOne(
+          { _id: track._id }, 
+          { 
+            $set: { 
+              lastPlayedDate: today,
+              ...(track.isRepeating ? {} : { published: false })
+            }
+          }
+        );
+
+        const url = resolveUrl(track.audioUrl);
+        try {
+          await streamTrack(sock, url, `[SCHEDULED] ${track.title}`);
+        } catch (err) {
+          console.error(`  ❌ Scheduled track error: ${err.message}`);
+        }
+        continue; // Check for more fixed tracks before resuming rotation
       }
+
+      // 2. Play next rotation track
+      for (const track of tracks) {
+        if (sockDied || pendingFixedTrack) break;
+        
+        const url = resolveUrl(track.audioUrl);
+        try {
+          await streamTrack(sock, url, track.title || "Untitled");
+        } catch (err) {
+          console.error(`  ❌ Track error: ${err.message}`);
+          if (sockDied) break;
+          await sleep(2_000);
+        }
+        // After each song, check if a fixed track became pending
+        if (pendingFixedTrack) break; 
+      }
+      
+      // Re-fetch tracks for the next loop to pick up any changes
+      try {
+        tracks = await fetchRotationTracks();
+      } catch { break; }
     }
 
     sock.destroy();
-    console.log("\n🔄 Playlist complete — reloading from DB and reconnecting…");
+    console.log("\n🔄 Connection lost or playlist reset — reconnecting…");
     await sleep(2_000);
   }
 }

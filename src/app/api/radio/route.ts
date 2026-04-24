@@ -44,14 +44,19 @@ export async function GET() {
       );
     }
 
-    // Anchor the radio clock to the createdAt of the first track.
+    // Filter rotation tracks for math purposes
+    const rotationTracks = tracks.filter((t) => t.scheduleType !== "fixed");
+
+    // Anchor the radio clock to the createdAt of the first rotation track.
     // This value never changes so every client always agrees on t=0.
-    const firstCreatedAt = tracks[0].createdAt as Date | number | string;
-    const startEpoch = Math.floor(new Date(firstCreatedAt).getTime() / 1000);
-    const totalDuration = tracks.reduce((s, t) => s + (t.durationSec ?? 0), 0);
+    const firstCreatedAt = rotationTracks.length
+      ? rotationTracks[0].createdAt
+      : (tracks[0]?.createdAt ?? Date.now());
+    const startEpoch = Math.floor(new Date(firstCreatedAt as string | number | Date).getTime() / 1000);
+    const totalDuration = rotationTracks.reduce((s, t) => s + (t.durationSec ?? 0), 0);
 
     console.log(
-      `[api/radio] Serving ${tracks.length} tracks, totalDuration=${totalDuration}s, epoch=${startEpoch}`
+      `[api/radio] Serving ${tracks.length} tracks (${rotationTracks.length} rotation), totalDuration=${totalDuration}s, epoch=${startEpoch}`
     );
 
     return NextResponse.json(
@@ -63,6 +68,10 @@ export async function GET() {
           audioUrl: t.audioUrl,
           durationSec: t.durationSec,
           order: t.order ?? 0,
+          scheduleType: t.scheduleType || "rotation",
+          fixedTime: t.fixedTime,
+          isRepeating: t.isRepeating ?? true,
+          createdAt: t.createdAt,
         })),
         startEpoch,
         totalDuration,

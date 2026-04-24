@@ -12,6 +12,9 @@ type TrackRow = {
   durationSec?: number;
   order: number;
   published: boolean;
+  scheduleType: "rotation" | "fixed";
+  fixedTime?: string;
+  isRepeating: boolean;
 };
 
 function fmtDur(s: number) {
@@ -74,7 +77,14 @@ export function AdminTracksClient() {
   const [audioLink,   setAudioLink]   = useState("");
   const [durationMin, setDurationMin] = useState(0);
   const [durationSec, setDurationSec] = useState(0);
+  const [scheduleType, setScheduleType] = useState<"rotation" | "fixed">("rotation");
+  const [fixedTime, setFixedTime] = useState("");
+  const [isRepeating, setIsRepeating] = useState(true);
   const [busy, setBusy] = useState(false);
+
+  // Bulk paste state
+  const [bulkMode, setBulkMode] = useState(false);
+  const [bulkText, setBulkText] = useState("");
 
   async function refresh() {
     const res = await fetch("/api/admin/tracks");
@@ -120,14 +130,55 @@ export function AdminTracksClient() {
           audioUrl: audioLink.trim(),
           durationSec: durationMin * 60 + durationSec > 0 ? durationMin * 60 + durationSec : undefined,
           order, published: true,
+          scheduleType,
+          fixedTime: scheduleType === "fixed" ? fixedTime : undefined,
+          isRepeating,
         }),
       });
       if (!res.ok) { setMsg("Could not save track."); return; }
       setTitle(""); setArtist(""); setDescription(""); setOrder(0);
       setAudioLink(""); setDurationMin(0); setDurationSec(0);
+      setScheduleType("rotation"); setFixedTime(""); setIsRepeating(true);
       await refresh();
       setMsg("✓ Track added.");
       setFormOpen(false);
+    } finally { setBusy(false); }
+  }
+
+  async function addBulkTracks(e: React.FormEvent) {
+    e.preventDefault();
+    setMsg(null);
+    const links = bulkText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    if (!links.length) { setMsg("Paste at least one link."); return; }
+    
+    setBusy(true);
+    let successCount = 0;
+    try {
+      for (let i = 0; i < links.length; i++) {
+        const link = links[i];
+        const fileId = gdriveFileId(link);
+        const defaultTitle = fileId ? `Track (${fileId.slice(0, 6)}...)` : `Unknown Track ${i + 1}`;
+        
+        const res = await fetch("/api/admin/tracks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            title: defaultTitle,
+            artist: artist.trim() || undefined,
+            audioUrl: link,
+            order: order + i, 
+            published: true,
+            scheduleType: "rotation",
+            isRepeating: true,
+          }),
+        });
+        if (res.ok) successCount++;
+      }
+      setBulkText(""); setArtist(""); setOrder(0);
+      await refresh();
+      setMsg(`✓ ${successCount} tracks added. You can rename them below.`);
+      setFormOpen(false);
+      setBulkMode(false);
     } finally { setBusy(false); }
   }
 
@@ -186,46 +237,153 @@ export function AdminTracksClient() {
       {/* ── Add form (collapsible) ── */}
       {formOpen && (
         <form
-          onSubmit={addTrack}
+          onSubmit={bulkMode ? addBulkTracks : addTrack}
           className="glass-panel p-5 space-y-4 border border-saffron/15"
         >
-          <h2 className="font-serif text-lg text-ink">New Track</h2>
-
-          <Field label="Title" required>
-            <input value={title} onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Jai Shri Ram Bhajan" className={inputCls} />
-          </Field>
-
-          <Field label="Artist" hint="(optional)">
-            <input value={artist} onChange={(e) => setArtist(e.target.value)}
-              placeholder="e.g. Anup Jalota" className={inputCls} />
-          </Field>
-
-          <Field label="Google Drive Audio Link" required>
-            <input value={audioLink} onChange={(e) => setAudioLink(e.target.value)}
-              placeholder="https://drive.google.com/file/d/.../view?usp=sharing"
-              className={monoCls} />
-            <div className="mt-1.5"><DriveStatus url={audioLink} /></div>
-          </Field>
-
-          <div className="grid grid-cols-2 gap-3">
-            <Field label="Duration Min" required hint="(auto-detected)">
-              <input type="number" value={durationMin}
-                onChange={(e) => setDurationMin(parseInt(e.target.value, 10) || 0)}
-                className={inputCls} placeholder="Min" />
-            </Field>
-            <Field label="Seconds" required>
-              <input type="number" value={durationSec}
-                onChange={(e) => setDurationSec(parseInt(e.target.value, 10) || 0)}
-                className={inputCls} placeholder="Sec" />
-            </Field>
+          <div className="flex items-center justify-between">
+            <h2 className="font-serif text-lg text-ink">New Track(s)</h2>
+            <div className="flex bg-saffron/10 rounded-full p-1 text-xs font-sans">
+              <button type="button" onClick={() => setBulkMode(false)}
+                className={`py-1 px-3 rounded-full transition-all ${!bulkMode ? "bg-saffron text-white shadow" : "text-ink/60 hover:text-ink"}`}>
+                Single
+              </button>
+              <button type="button" onClick={() => setBulkMode(true)}
+                className={`py-1 px-3 rounded-full transition-all ${bulkMode ? "bg-saffron text-white shadow" : "text-ink/60 hover:text-ink"}`}>
+                Bulk Paste
+              </button>
+            </div>
           </div>
 
-          <Field label="Order" hint="(lower = plays first)">
-            <input type="number" value={order}
-              onChange={(e) => setOrder(parseInt(e.target.value, 10) || 0)}
-              className={inputCls + " w-28"} />
-          </Field>
+          {!bulkMode ? (
+            <>
+              <Field label="Title" required>
+                <input value={title} onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Jai Shri Ram Bhajan" className={inputCls} />
+              </Field>
+
+              <Field label="Artist" hint="(optional)">
+                <input value={artist} onChange={(e) => setArtist(e.target.value)}
+                  placeholder="e.g. Anup Jalota" className={inputCls} />
+              </Field>
+
+              <Field label="Google Drive Audio Link" required>
+                <input value={audioLink} onChange={(e) => setAudioLink(e.target.value)}
+                  placeholder="https://drive.google.com/file/d/.../view?usp=sharing"
+                  className={monoCls} />
+                <div className="mt-1.5"><DriveStatus url={audioLink} /></div>
+              </Field>
+
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Duration Min" required hint="(auto-detected)">
+                  <input type="number" value={durationMin}
+                    onChange={(e) => setDurationMin(parseInt(e.target.value, 10) || 0)}
+                    className={inputCls} placeholder="Min" />
+                </Field>
+                <Field label="Seconds" required>
+                  <input type="number" value={durationSec}
+                    onChange={(e) => setDurationSec(parseInt(e.target.value, 10) || 0)}
+                    className={inputCls} placeholder="Sec" />
+                </Field>
+              </div>
+
+              <div className="space-y-4 pt-2 border-t border-ink/5">
+                <div className="flex items-center justify-between">
+                  <label className="text-sm font-medium text-ink/80">Play Mode</label>
+                  <div className="flex bg-ink/5 rounded-lg p-1 text-[11px] font-sans">
+                    <button type="button" onClick={() => setScheduleType("rotation")}
+                      className={`py-1 px-3 rounded-md transition-all ${scheduleType === "rotation" ? "bg-white text-ink shadow-sm" : "text-ink/50 hover:text-ink"}`}>
+                      Rotation
+                    </button>
+                    <button type="button" onClick={() => setScheduleType("fixed")}
+                      className={`py-1 px-3 rounded-md transition-all ${scheduleType === "fixed" ? "bg-white text-ink shadow-sm" : "text-ink/50 hover:text-ink"}`}>
+                      Fixed Time
+                    </button>
+                  </div>
+                </div>
+
+                {scheduleType === "fixed" ? (
+                  <div className="grid grid-cols-2 gap-3 animate-in fade-in slide-in-from-top-2 duration-300">
+                    <Field label="Play at (Time)" required hint="24h format">
+                      <input type="time" step="1" value={fixedTime}
+                        onChange={(e) => setFixedTime(e.target.value)}
+                        className={inputCls} />
+                    </Field>
+                    <label className="flex flex-col justify-end pb-2 cursor-pointer">
+                      <div className="flex items-center gap-2 text-sm font-sans text-ink/70">
+                        <input type="checkbox" checked={isRepeating}
+                          onChange={(e) => setIsRepeating(e.target.checked)}
+                          className="w-4 h-4 accent-saffron" />
+                        Repeat Daily
+                      </div>
+                    </label>
+
+                    {(() => {
+                      const existingFixed = rows.filter(r => r.scheduleType === "fixed" && r.fixedTime && r.durationSec);
+                      if (existingFixed.length === 0) return null;
+                      
+                      const formatTime = (secs: number) => {
+                        const h = Math.floor(secs / 3600).toString().padStart(2, "0");
+                        const m = Math.floor((secs % 3600) / 60).toString().padStart(2, "0");
+                        const s = Math.floor(secs % 60).toString().padStart(2, "0");
+                        return `${h}:${m}:${s}`;
+                      };
+                      
+                      return (
+                        <div className="col-span-2 pt-2 border-t border-ink/5">
+                          <label className="block text-xs font-medium text-ink/70 mb-2">Auto-Queue After Existing Tracks (10s gap)</label>
+                          <div className="flex flex-wrap gap-2">
+                            {existingFixed.map(t => {
+                              const [h, m, s] = t.fixedTime!.split(":").map(Number);
+                              const endSecs = (h * 3600) + (m * 60) + (s || 0) + (t.durationSec || 0) + 10;
+                              const normalized = endSecs % 86400; // Handle midnight wrap
+                              const timeStr = formatTime(normalized);
+                              return (
+                                <button key={t._id} type="button" 
+                                  onClick={() => setFixedTime(timeStr)}
+                                  className="text-[11px] px-2.5 py-1.5 rounded-md bg-saffron/10 text-saffron-dim border border-saffron/20 hover:bg-saffron hover:text-white transition-colors"
+                                >
+                                  After "{t.title.length > 15 ? t.title.substring(0, 15) + '...' : t.title}" ({timeStr})
+                                </button>
+                              );
+                            })}
+                          </div>
+                        </div>
+                      );
+                    })()}
+                  </div>
+                ) : (
+                  <Field label="Order" hint="(lower = plays first)">
+                    <input type="number" value={order}
+                      onChange={(e) => setOrder(parseInt(e.target.value, 10) || 0)}
+                      className={inputCls + " w-28"} />
+                  </Field>
+                )}
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="text-sm text-ink/70 font-sans">
+                Paste multiple Google Drive links below (one per line). Temporary titles will be assigned, allowing you to edit them exactly as you want in the main list.
+              </p>
+              
+              <Field label="Links" required>
+                <textarea rows={6} value={bulkText} onChange={(e) => setBulkText(e.target.value)}
+                  placeholder="https://drive.google.com/...&#10;https://drive.google.com/..."
+                  className={monoCls + " resize-y"} />
+              </Field>
+
+              <Field label="Artist" hint="(optional, applies to all)">
+                <input value={artist} onChange={(e) => setArtist(e.target.value)}
+                  placeholder="e.g. Anup Jalota" className={inputCls} />
+              </Field>
+              
+              <Field label="Starting Order" hint="(increments for each track)">
+                <input type="number" value={order}
+                  onChange={(e) => setOrder(parseInt(e.target.value, 10) || 0)}
+                  className={inputCls + " w-28"} />
+              </Field>
+            </>
+          )}
 
           {msg && (
             <p className={`text-sm font-sans ${msg.startsWith("✓") ? "text-emerald-700" : "text-red-600"}`}>
@@ -236,7 +394,7 @@ export function AdminTracksClient() {
           <button type="submit" disabled={busy}
             className="w-full rounded-2xl bg-saffron text-white py-3 font-semibold font-sans
               shadow-glow-sm hover:bg-saffron-dim disabled:opacity-50 active:scale-95 transition-all">
-            {busy ? "Saving…" : "Save Track"}
+            {busy ? "Saving…" : (bulkMode ? "Save All Tracks" : "Save Track")}
           </button>
         </form>
       )}
@@ -265,13 +423,30 @@ export function AdminTracksClient() {
                   {idx + 1}
                 </span>
                 <div className="flex-1 min-w-0">
-                  <p className="font-semibold text-ink truncate text-sm">{r.title}</p>
-                  <p className="text-xs text-ink/50 font-sans mt-0.5 flex items-center gap-2">
-                    {r.artist && <span className="truncate">{r.artist}</span>}
-                    {r.durationSec ? <span className="shrink-0 text-saffron-dim/80">{fmtDur(r.durationSec)}</span> : null}
-                  </p>
-                  <div className="mt-1.5 flex flex-wrap gap-2 items-center">
+                  <div className="flex gap-2 items-center mb-1">
+                    <input 
+                      defaultValue={r.title} 
+                      onBlur={(e) => patch(r._id, { title: e.target.value.trim() })}
+                      className="font-semibold text-ink w-full max-w-[200px] bg-transparent border-b border-transparent hover:border-ink/20 focus:border-saffron focus:outline-none text-sm px-1 py-0.5 rounded transition-colors"
+                      placeholder="Track Title"
+                    />
+                  </div>
+                  <div className="flex items-center gap-2 mb-2">
+                    <input 
+                      defaultValue={r.artist || ""} 
+                      onBlur={(e) => patch(r._id, { artist: e.target.value.trim() })}
+                      className="text-xs text-ink/60 bg-transparent border-b border-transparent hover:border-ink/20 focus:border-saffron focus:outline-none px-1 py-0.5 rounded transition-colors max-w-[150px]"
+                      placeholder="Optional Artist"
+                    />
+                    {r.durationSec ? <span className="shrink-0 text-xs text-saffron-dim/80">{fmtDur(r.durationSec)}</span> : null}
+                  </div>
+                  <div className="flex flex-wrap gap-2 items-center">
                     <DriveStatus url={r.audioUrl} />
+                    {r.scheduleType === "fixed" && (
+                      <span className="text-[11px] px-2 py-0.5 rounded-full border border-saffron/30 bg-saffron/5 text-saffron-dim font-sans flex items-center gap-1">
+                        🔔 {r.fixedTime}
+                      </span>
+                    )}
                     <span className={`text-[11px] px-2 py-0.5 rounded-full border font-sans ${
                       r.published
                         ? "bg-emerald-50 border-emerald-200 text-emerald-700"
@@ -323,6 +498,32 @@ export function AdminTracksClient() {
                       onChange={(e) => patch(r._id, { published: e.target.checked })} />
                     Published
                   </label>
+
+                  <div className="h-4 w-[1px] bg-ink/10 mx-1" />
+
+                  <select 
+                    defaultValue={r.scheduleType}
+                    className="text-xs font-sans text-ink/70 bg-white/60 border border-ink/10 rounded-lg px-2 py-1.5 focus:outline-none"
+                    onChange={(e) => patch(r._id, { scheduleType: e.target.value as any })}
+                  >
+                    <option value="rotation">Rotation</option>
+                    <option value="fixed">Fixed Time</option>
+                  </select>
+
+                  {r.scheduleType === "fixed" && (
+                    <>
+                      <input type="time" step="1" defaultValue={r.fixedTime}
+                        className="text-xs font-sans text-ink/70 bg-white/60 border border-ink/10 rounded-lg px-2 py-1.5 focus:outline-none"
+                        onBlur={(e) => patch(r._id, { fixedTime: e.target.value })} />
+                      
+                      <label className="flex items-center gap-2 text-xs font-sans text-ink/70 bg-white/60 border border-ink/10 rounded-lg px-2.5 py-2 cursor-pointer">
+                        <input type="checkbox" defaultChecked={r.isRepeating}
+                          className="w-3.5 h-3.5 accent-saffron"
+                          onChange={(e) => patch(r._id, { isRepeating: e.target.checked })} />
+                        Repeat
+                      </label>
+                    </>
+                  )}
                 </div>
 
                 {/* Drive file ID

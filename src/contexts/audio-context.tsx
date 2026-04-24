@@ -23,6 +23,10 @@ export type TrackItem = {
   audioUrl: string;
   durationSec?: number;
   order: number;
+  scheduleType?: "rotation" | "fixed";
+  fixedTime?: string;
+  isRepeating?: boolean;
+  createdAt?: string | Date;
 };
 
 export type RadioPosition = {
@@ -83,13 +87,59 @@ function calcRadioPosition(
   startEpoch: number,
   totalDuration: number
 ): RadioPosition | null {
-  if (!tracks.length || !totalDuration || !startEpoch) return null;
-  const nowSec = Date.now() / 1000;
-  const elapsed = (nowSec - startEpoch) % totalDuration;
+  if (!tracks.length || !startEpoch) return null;
 
+  const nowMs = Date.now();
+  const nowSec = nowMs / 1000;
+  const nowDates = new Date(nowMs);
+
+  // 1. Check if any fixed track is CURRENTLY playing
+  for (let i = 0; i < tracks.length; i++) {
+    const t = tracks[i];
+    if (t.scheduleType !== "fixed" || !t.fixedTime || !t.durationSec) continue;
+
+    const [fh, fm] = t.fixedTime.split(":").map(Number);
+    // Determine absolute start time for TODAY
+    const startOfToday = new Date(nowDates);
+    startOfToday.setHours(fh, fm, 0, 0);
+    const startMs = startOfToday.getTime();
+
+    if (t.isRepeating === false) {
+      // If not repeating, it only plays on the first occurrence after createdAt
+      const createdMs = new Date(t.createdAt || 0).getTime();
+      const firstOccurrenceMs = new Date(createdMs);
+      firstOccurrenceMs.setHours(fh, fm, 0, 0);
+      if (firstOccurrenceMs.getTime() < createdMs) {
+        firstOccurrenceMs.setDate(firstOccurrenceMs.getDate() + 1);
+      }
+      if (startMs !== firstOccurrenceMs.getTime()) continue;
+    }
+
+    const startSec = startMs / 1000;
+    const endSec = startSec + t.durationSec;
+
+    if (nowSec >= startSec && nowSec < endSec) {
+      // THIS fixed track is currently playing!
+      return {
+        trackIdx: i,
+        offsetSec: nowSec - startSec,
+        remainingSec: endSec - nowSec,
+        elapsed: 0,
+      };
+    }
+  }
+
+  // 2. If no fixed track is playing, compute rotation
+  const rotationTracks = tracks.filter((t) => t.scheduleType !== "fixed");
+  if (!rotationTracks.length || !totalDuration) return null;
+
+  const elapsed = (nowSec - startEpoch) % totalDuration;
   let acc = 0;
   for (let i = 0; i < tracks.length; i++) {
-    const dur = tracks[i].durationSec ?? 0;
+    const t = tracks[i];
+    if (t.scheduleType === "fixed") continue;
+
+    const dur = t.durationSec ?? 0;
     if (elapsed < acc + dur) {
       return {
         trackIdx: i,
@@ -100,7 +150,10 @@ function calcRadioPosition(
     }
     acc += dur;
   }
-  return { trackIdx: 0, offsetSec: 0, remainingSec: tracks[0].durationSec ?? 0, elapsed };
+  
+  // Fallback
+  const firstRotIdx = tracks.findIndex(t => t.scheduleType !== "fixed");
+  return { trackIdx: firstRotIdx >= 0 ? firstRotIdx : 0, offsetSec: 0, remainingSec: 0, elapsed };
 }
 
 /**
@@ -213,6 +266,9 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const [isSyncedRadio, setIsSyncedRadio] = useState(false);
   const [radioPosition, setRadioPosition] = useState<RadioPosition | null>(null);
   const [needsGesture, setNeedsGesture] = useState(false);
+  
+  // Keep track of previous radio position to detect hard breaks
+  const radioPositionRef = useRef<RadioPosition | null>(null);
 
   // Stable refs — avoid stale closures in callbacks/effects
   const tracksRef       = useRef(tracks);
@@ -580,12 +636,24 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       const rt    = radioTracksRef.current;
       const epoch = startEpochRef.current;
       const total = totalDurationRef.current;
-      if (rt.length && epoch && total) {
-        setRadioPosition(calcRadioPosition(rt, epoch, total));
+      if (rt.length && epoch) {
+        const newPos = calcRadioPosition(rt, epoch, total);
+        const oldPos = radioPositionRef.current;
+        
+        if (newPos && oldPos && newPos.trackIdx !== oldPos.trackIdx) {
+          // Track changed during the 1s interval (e.g., Hard Break or normal boundary missed by drift checker)
+          console.log(`[radio] Track changed via ticker to index ${newPos.trackIdx}`);
+          radioPositionRef.current = newPos;
+          setRadioPosition(newPos);
+          syncAndPlay();
+        } else {
+          radioPositionRef.current = newPos;
+          setRadioPosition(newPos);
+        }
       }
     }, 1000);
     return () => clearInterval(id);
-  }, [isSyncedRadio]);
+  }, [isSyncedRadio, syncAndPlay]);
 
   // ── Context value ───────────────────────────────────────────────────────
   const value = useMemo(

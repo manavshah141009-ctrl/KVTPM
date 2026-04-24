@@ -9,6 +9,10 @@ export interface ITrack {
   durationSec?: number;
   order: number;
   published: boolean;
+  scheduleType: "rotation" | "fixed";
+  fixedTime?: string; // HH:mm
+  isRepeating: boolean;
+  lastPlayedDate?: string; // YYYY-MM-DD
   createdAt: Date;
   updatedAt: Date;
 }
@@ -22,6 +26,10 @@ const TrackSchema = new Schema<ITrack>(
     durationSec: { type: Number },
     order: { type: Number, default: 0 },
     published: { type: Boolean, default: true },
+    scheduleType: { type: String, enum: ["rotation", "fixed"], default: "rotation" },
+    fixedTime: { type: String },
+    isRepeating: { type: Boolean, default: true },
+    lastPlayedDate: { type: String },
   },
   { timestamps: true }
 );
