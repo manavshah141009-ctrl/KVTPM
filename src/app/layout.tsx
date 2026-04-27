@@ -4,6 +4,7 @@ import "./globals.css";
 import { AudioProvider } from "@/contexts/audio-context";
 import { LanguageProvider } from "@/contexts/language-context";
 import { ShellLayout } from "@/components/shell-layout";
+import { Analytics } from "@vercel/analytics/react";
 
 const playfair = Playfair_Display({
   subsets: ["latin"],
@@ -46,6 +47,9 @@ export const metadata: Metadata = {
 export const viewport: Viewport = {
   themeColor: "#FF9933",
   colorScheme: "light",
+  width: "device-width",
+  initialScale: 1,
+  maximumScale: 1,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
@@ -55,6 +59,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         <LanguageProvider>
           <AudioProvider>
             <ShellLayout>{children}</ShellLayout>
+            <Analytics />
           </AudioProvider>
         </LanguageProvider>
       </body>
