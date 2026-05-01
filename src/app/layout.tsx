@@ -18,8 +18,10 @@ const sourceSans = Source_Sans_3({
   display: "swap",
 });
 
+const appUrl = process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000";
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_APP_URL || "http://localhost:3000"),
+  metadataBase: new URL(appUrl.startsWith("http") ? appUrl : `https://${appUrl}`),
   title: {
     default: "KarVicharTohPamm — Spiritual wisdom & satsang",
     template: "%s · KarVicharTohPamm",
@@ -54,7 +56,7 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable}`}>
       <head />
-      <body className="font-sans min-h-dvh">
+      <body className="font-sans min-h-dvh overflow-x-hidden">
         <LanguageProvider>
           <AudioProvider>
             <ShellLayout>{children}</ShellLayout>

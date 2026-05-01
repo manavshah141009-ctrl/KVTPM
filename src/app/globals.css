@@ -17,6 +17,8 @@ html {
   scroll-behavior: smooth;
   /* Prevent iOS bounce from showing white below the gradient */
   background-color: #f5f5dc;
+  overflow-x: hidden;
+  max-width: 100vw;
 }
 
 body {
@@ -27,6 +29,7 @@ body {
   min-height: 100dvh;
   /* Prevent horizontal overflow on mobile */
   overflow-x: hidden;
+  max-width: 100vw;
 }
 
 /* iOS tap highlight */
