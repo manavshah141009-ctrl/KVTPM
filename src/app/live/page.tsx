@@ -1,6 +1,6 @@
 import { dbConnect } from "@/lib/db";
 import { LiveStream } from "@/models/LiveStream";
-import { LiveView } from "./live-view";
+import { LiveContent } from "./live-content";
 
 export const revalidate = 30;
 
@@ -28,17 +28,5 @@ export default async function LivePage() {
     cfg = null;
   }
 
-  return (
-    <div className="max-w-6xl mx-auto px-4 py-10 md:py-14">
-      <header className="mb-8 text-center max-w-2xl mx-auto">
-        <h1 className="font-serif text-3xl md:text-4xl text-ink mb-2">Live satsang</h1>
-        <p className="text-ink/70 font-sans leading-relaxed">
-          Gather in real time for teaching, kirtan, and shared silence. When the stream is active, the
-          lamp below glows softly — a small reminder that something sacred is unfolding.
-        </p>
-      </header>
-
-      <LiveView initial={cfg} />
-    </div>
-  );
+  return <LiveContent initial={cfg} />;
 }

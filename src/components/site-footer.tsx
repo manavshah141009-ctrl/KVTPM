@@ -26,7 +26,7 @@ export function SiteFooter() {
             {tr("footer.liveSatsang")}
           </Link>
           <Link href="/admin/login" className="text-ink/40 hover:text-ink/60 text-xs mt-2">
-            Admin
+            {tr("nav.admin")}
           </Link>
         </div>
       </div>

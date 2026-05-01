@@ -20,7 +20,7 @@ export const LANG_NAMES: Record<Lang, string> = {
 
 export type TranslationKey =
   // Header nav
-  | "nav.home" | "nav.listen" | "nav.books" | "nav.live"
+  | "nav.home" | "nav.listen" | "nav.books" | "nav.live" | "nav.admin"
   // Header tagline
   | "header.tagline"
   // Homepage hero
@@ -40,12 +40,19 @@ export type TranslationKey =
   | "listen.noTracks" | "listen.noTracksDesc"
   | "listen.loading"
   // Player bar
-  | "player.liveLabel"
+  | "player.liveLabel" | "player.continuous" | "player.live" | "player.queue"
   // Footer
   | "footer.tagline" | "footer.listen" | "footer.books"
   | "footer.liveSatsang" | "footer.madeWith"
   // Tap to play
-  | "tap.to.play";
+  | "tap.to.play"
+  // Books page
+  | "books.pageTitle" | "books.pageDesc" | "books.empty"
+  | "books.back" | "books.by" | "books.download" | "books.readOnline"
+  // Live page
+  | "live.pageTitle" | "live.pageDesc"
+  // PDF Reader page
+  | "read.back" | "read.openNewTab";
 
 type Translations = Record<Lang, Record<TranslationKey, string>>;
 
@@ -56,6 +63,7 @@ export const t: Translations = {
     "nav.listen": "Listen",
     "nav.books": "Books",
     "nav.live": "Live",
+    "nav.admin": "Admin",
     "header.tagline": "Wisdom · Bhakti · Satsang",
     "home.badge": "Peace begins within",
     "home.title": "KarVicharTohPamm",
@@ -98,6 +106,9 @@ export const t: Translations = {
       "Go to the admin panel, add tracks, and make sure each track has a Duration (seconds) set.",
     "listen.loading": "Tuning in to the broadcast…",
     "player.liveLabel": "KarVicharTohPamm · Live",
+    "player.continuous": "KarVicharTohPamm · continuous listen",
+    "player.live": "Live",
+    "player.queue": "Queue",
     "footer.tagline":
       "A gentle space for reflection — sacred sound, timeless books, and shared satsang.",
     "footer.listen": "24/7 Listen",
@@ -105,6 +116,17 @@ export const t: Translations = {
     "footer.liveSatsang": "Live Satsang",
     "footer.madeWith": "Made with calm intent.",
     "tap.to.play": "Tap anywhere to tune in to the broadcast",
+    "books.pageTitle": "Books",
+    "books.pageDesc": "Sacred texts and published works shared with care. Open a title to read online or download for later.",
+    "books.empty": "New volumes are being prepared. Please visit again.",
+    "books.back": "← All books",
+    "books.by": "By",
+    "books.download": "Download PDF",
+    "books.readOnline": "Read online",
+    "live.pageTitle": "Live satsang",
+    "live.pageDesc": "Gather in real time for teaching, kirtan, and shared silence.",
+    "read.back": "← Back to book",
+    "read.openNewTab": "Open in new tab",
   },
 
   // ─────────────────────────────────── HINDI ───────────────────────────────
@@ -113,6 +135,7 @@ export const t: Translations = {
     "nav.listen": "सुनें",
     "nav.books": "पुस्तकें",
     "nav.live": "लाइव",
+    "nav.admin": "एडमिन",
     "header.tagline": "ज्ञान · भक्ति · सत्संग",
     "home.badge": "शांति हृदय से शुरू होती है",
     "home.title": "KarVicharTohPamm",
@@ -155,6 +178,9 @@ export const t: Translations = {
       "एडमिन पैनल में जाएँ, गीत जोड़ें और सुनिश्चित करें कि प्रत्येक गीत की अवधि (सेकंड) निर्धारित हो।",
     "listen.loading": "प्रसारण से जुड़ रहे हैं…",
     "player.liveLabel": "KarVicharTohPamm · लाइव",
+    "player.continuous": "KarVicharTohPamm · निरंतर श्रवण",
+    "player.live": "लाइव",
+    "player.queue": "कतार",
     "footer.tagline":
       "चिंतन के लिए एक सौम्य स्थान — पवित्र ध्वनि, कालातीत पुस्तकें और साझा सत्संग।",
     "footer.listen": "24/7 सुनें",
@@ -162,6 +188,17 @@ export const t: Translations = {
     "footer.liveSatsang": "लाइव सत्संग",
     "footer.madeWith": "आध्यात्मिक सेवा भाव से निर्मित।",
     "tap.to.play": "प्रसारण सुनने के लिए कहीं भी क्लिक करें",
+    "books.pageTitle": "पुस्तकें",
+    "books.pageDesc": "पवित्र ग्रंथ और प्रकाशित कृतियाँ। ऑनलाइन पढ़ने या डाउनलोड करने के लिए एक शीर्षक चुनें।",
+    "books.empty": "नए खंड तैयार किए जा रहे हैं। कृपया पुनः पधारें।",
+    "books.back": "← सभी पुस्तकें",
+    "books.by": "द्वारा",
+    "books.download": "PDF डाउनलोड करें",
+    "books.readOnline": "ऑनलाइन पढ़ें",
+    "live.pageTitle": "लाइव सत्संग",
+    "live.pageDesc": "शिक्षा, कीर्तन और साझा मौन के लिए वास्तविक समय में एकत्रित हों।",
+    "read.back": "← पुस्तक पर वापस जाएँ",
+    "read.openNewTab": "नया टैब में खोलें",
   },
 
   // ─────────────────────────────────── GUJARATI ────────────────────────────
@@ -170,6 +207,7 @@ export const t: Translations = {
     "nav.listen": "શ્રવણ",
     "nav.books": "પુસ્તકો",
     "nav.live": "લાઇવ",
+    "nav.admin": "એડમિન",
     "header.tagline": "જ્ઞાન · ભક્તિ · સત્સંગ",
     "home.badge": "શાંતિ અંતરથી શરૂ થાય છે",
     "home.title": "KarVicharTohPamm",
@@ -212,6 +250,9 @@ export const t: Translations = {
       "એડમિન પેનલ પર જાઓ, ગીતો ઉમેરો અને દરેક ગીતની લંબાઈ સેટ કરો.",
     "listen.loading": "પ્રસારણ સાથે જોડાઈ રહ્યા છીએ…",
     "player.liveLabel": "KarVicharTohPamm · લાઇવ",
+    "player.continuous": "KarVicharTohPamm · નિરંતર શ્રવણ",
+    "player.live": "લાઇવ",
+    "player.queue": "કતાર",
     "footer.tagline":
       "ચિંતન માટેનું એક પવિત્ર સ્થાન — શ્રવણ, પુસ્તકો અને સત્સંગ.",
     "footer.listen": "24/7 શ્રવણ",
@@ -219,6 +260,17 @@ export const t: Translations = {
     "footer.liveSatsang": "લાઇવ સત્સંગ",
     "footer.madeWith": "શાંતિ અને સેવાભાવથી બનાવેલ.",
     "tap.to.play": "પ્રસારણ સાંભળવા માટે ક્યાંય પણ ટેપ કરો",
+    "books.pageTitle": "પુસ્તકો",
+    "books.pageDesc": "પવિત્ર ગ્રંથો અને પ્રકાશિત કૃતિઓ. ઓનલાઇન વાંચવા અથવા ડાઉનલોડ કરવા માટે શીર્ષક પસંદ કરો.",
+    "books.empty": "નવી પુસ્તકો તૈયાર કરવામાં આવી રહી છે. કૃપા કરીને ફરી મુલાકાત લો.",
+    "books.back": "← બધા પુસ્તકો",
+    "books.by": "દ્વારા",
+    "books.download": "PDF ડાઉનલોડ કરો",
+    "books.readOnline": "ઓનલાઇન વાંચો",
+    "live.pageTitle": "લાઇવ સત્સંગ",
+    "live.pageDesc": "શિક્ષણ, કીર્તન અને સત્સંગ માટે વાસ્તવિક સમયમાં જોડાઓ.",
+    "read.back": "← પુસ્તક પર પાછા જાઓ",
+    "read.openNewTab": "નવા ટેબમાં ખોલો",
   },
 
   // ─────────────────────────────────── MARATHI ─────────────────────────────
@@ -227,6 +279,7 @@ export const t: Translations = {
     "nav.listen": "ऐका",
     "nav.books": "पुस्तके",
     "nav.live": "थेट",
+    "nav.admin": "प्रशासक",
     "header.tagline": "ज्ञान · भक्ती · सत्संग",
     "home.badge": "शांती अंतरातून सुरू होते",
     "home.title": "KarVicharTohPamm",
@@ -269,12 +322,26 @@ export const t: Translations = {
       "प्रशासक पॅनेलमध्ये जा, गाणी जोडा आणि प्रत्येक गाण्याचा कालावधी (सेकंद) सेट असल्याची खात्री करा.",
     "listen.loading": "प्रसारणाशी जोडले जात आहे…",
     "player.liveLabel": "KarVicharTohPamm · थेट",
+    "player.continuous": "KarVicharTohPamm · निरंतर श्रवण",
+    "player.live": "थेट",
+    "player.queue": "रांग",
     "footer.tagline":
       "चिंतनासाठी एक सौम्य जागा — पवित्र ध्वनी, कालातीत पुस्तके और सामायिक सत्संग.",
     "footer.listen": "24/7 ऐका",
     "footer.books": "पुस्तके",
     "footer.liveSatsang": "थेट सत्संग",
     "footer.madeWith": "शांत हेतूने आणि सेवाभावाने बनवलेले.",
-    "tap.to.play": "प्रसारण ऐकण्यासाठी कुठेही टॅप करा",
+    "tap.to.play": "પ્રસારણ સાંભળવા માટે ક્યાંય પણ ક્લિક કરો",
+    "books.pageTitle": "पुस्तके",
+    "books.pageDesc": "पवित्र ग्रंथ आणि प्रकाशित साहित्य. ऑनलाइन वाचण्यासाठी किंवा डाऊनलोड करण्यासाठी शीर्षक निवडा.",
+    "books.empty": "नवीन पुस्तके तयार केली जात आहेत. कृपया पुन्हा भेट द्या.",
+    "books.back": "← सर्व पुस्तके",
+    "books.by": "द्वारे",
+    "books.download": "PDF डाऊनलोड करा",
+    "books.readOnline": "ऑनलाइन वाचा",
+    "live.pageTitle": "थेट सत्संग",
+    "live.pageDesc": "शिक्षण, कीर्तन और सत्संग चर्चेसाठी वास्तविक वेळेत एकत्र या.",
+    "read.back": "← पुस्तकाकडे परत जा",
+    "read.openNewTab": "नवीन टॅबमध्ये उघडा",
   },
 };

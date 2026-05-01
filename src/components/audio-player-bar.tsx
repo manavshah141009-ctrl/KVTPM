@@ -20,7 +20,7 @@ export function AudioPlayerBar() {
   const displayArtist = radioTrack?.artist ?? current?.artist;
   const subLabel = isSyncedRadio
     ? tr("player.liveLabel")
-    : "KarVicharTohPamm · continuous listen";
+    : tr("player.continuous");
 
   return (
     <motion.div
@@ -105,7 +105,7 @@ export function AudioPlayerBar() {
               bg-red-50 border border-red-200 text-red-500 text-[10px] font-sans font-semibold
               tracking-wider uppercase shrink-0">
               <span className="w-1.5 h-1.5 rounded-full bg-red-400 animate-pulse-soft" />
-              Live
+              {tr("player.live")}
             </span>
           )}
         </div>
@@ -130,7 +130,7 @@ export function AudioPlayerBar() {
           href="/listen"
           className="text-xs font-sans text-saffron-dim hover:text-saffron hidden sm:inline shrink-0"
         >
-          {isSyncedRadio ? "Live" : "Queue"}
+          {isSyncedRadio ? tr("player.live") : tr("player.queue")}
         </Link>
       </div>
     </motion.div>
