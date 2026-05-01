@@ -46,15 +46,14 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: "#FF9933",
-  colorScheme: "light",
   width: "device-width",
-  initialScale: 1,
-  maximumScale: 1,
+  initialScale: 1.0,
 };
 
 export default function RootLayout({ children }: { children: React.ReactNode }) {
   return (
     <html lang="en" className={`${playfair.variable} ${sourceSans.variable}`}>
+      <head />
       <body className="font-sans min-h-dvh">
         <LanguageProvider>
           <AudioProvider>
