@@ -1,11 +1,11 @@
 import mongoose, { Schema, models, model } from "mongoose";
 
-export type StreamProvider = "youtube" | "embed" | "hls";
+export type StreamProvider = "youtube" | "embed" | "hls" | "livekit";
 
 export interface ILiveStream {
   _id: mongoose.Types.ObjectId;
   title: string;
-  /** YouTube video ID, HLS URL, or full embed src */
+  /** YouTube video ID, HLS URL, or LiveKit Room Name */
   streamKeyOrUrl: string;
   provider: StreamProvider;
   isLive: boolean;
@@ -20,7 +20,7 @@ const LiveStreamSchema = new Schema<ILiveStream>(
     streamKeyOrUrl: { type: String, required: true },
     provider: {
       type: String,
-      enum: ["youtube", "embed", "hls"],
+      enum: ["youtube", "embed", "hls", "livekit"],
       default: "youtube",
     },
     isLive: { type: Boolean, default: false },

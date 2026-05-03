@@ -62,6 +62,9 @@ type AudioCtx = {
   isLiveStream: boolean;
   streamUrl: string | null;
   toggleLiveStream: () => void;
+  // Force stop/resume for Live Priority
+  forceStop: () => void;
+  resumeAudio: () => void;
 };
 
 const Ctx = createContext<AudioCtx | null>(null);
@@ -280,6 +283,7 @@ export function AudioProvider({ children }: { children: ReactNode }) {
   const isSyncedRef     = useRef(isSyncedRadio);
   const isPlayingRef    = useRef(isPlaying);
   const cancelRef       = useRef<(() => void) | null>(null);
+  const blockAutoPlayRef = useRef(false);
 
   tracksRef.current       = tracks;
   radioTracksRef.current  = radioTracks;
@@ -369,6 +373,8 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     autoPlayTriedRef.current = true;
 
     const timer = setTimeout(() => {
+      if (blockAutoPlayRef.current) return; // Blocked by Live Priority
+
       setIsSyncedRadio(true);
       isSyncedRef.current = true;
 
@@ -555,6 +561,30 @@ export function AudioProvider({ children }: { children: ReactNode }) {
     }
   }, [syncAndPlay]);
 
+  const forceStop = useCallback(() => {
+    blockAutoPlayRef.current = true; // Prevent any pending auto-play
+    if (cancelRef.current) { cancelRef.current(); cancelRef.current = null; }
+    const el = audioRef.current;
+    if (el) {
+      el.pause();
+      el.src = "";
+      el.removeAttribute("src");
+      el.load();
+    }
+    setPlaying(false);
+    setIsSyncedRadio(false);
+    isSyncedRef.current = false;
+    setRadioPosition(null);
+  }, []);
+
+  const resumeAudio = useCallback(() => {
+    blockAutoPlayRef.current = false;
+    // Tune back into radio automatically
+    setIsSyncedRadio(true);
+    isSyncedRef.current = true;
+    syncAndPlay();
+  }, [syncAndPlay]);
+
   const setVolume = useCallback((v: number) => {
     setVolumeState(Math.min(1, Math.max(0, v)));
   }, []);
@@ -681,12 +711,14 @@ export function AudioProvider({ children }: { children: ReactNode }) {
       isLiveStream:    isSyncedRadio,
       streamUrl:       radioTracks.length ? "synced" : null,
       toggleLiveStream: toggleRadio,
+      forceStop,
+      resumeAudio,
     }),
     [
       tracks, setTracks, current, currentIndex, isPlaying, volume,
       loadPlaylist, playIndex, togglePlay, setVolume, playNext, playPrev,
       radioTracks, startEpoch, totalDuration, isSyncedRadio, radioPosition,
-      toggleRadio, needsGesture,
+      toggleRadio, needsGesture, forceStop, resumeAudio,
     ]
   );
 

@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { gdriveFileId, gdriveThumbnailUrl, isGdriveUrl } from "@/lib/gdrive";
+import { gdriveFileId, gdriveFolderId, gdriveThumbnailUrl, isGdriveUrl } from "@/lib/gdrive";
+import { DirectUpload } from "./direct-upload";
 
 type BookRow = {
   _id: string;
@@ -78,6 +79,8 @@ export function AdminBooksClient() {
   const [featured,    setFeatured]    = useState(false);
   const [coverLink,   setCoverLink]   = useState("");
   const [pdfLink,     setPdfLink]     = useState("");
+  const [bulkMode,    setBulkMode]    = useState(false);
+  const [folderFiles, setFolderFiles] = useState<any[]>([]);
   const [busy, setBusy] = useState(false);
 
   async function refresh() {
@@ -173,72 +176,255 @@ export function AdminBooksClient() {
       {/* Add form (collapsible) */}
       {formOpen && (
         <form onSubmit={createBook} className="glass-panel p-5 space-y-4 border border-saffron/15">
-          <h2 className="font-serif text-lg text-ink">New Book</h2>
-
-          <Field label="Title" required>
-            <input value={title} onChange={(e) => setTitle(e.target.value)}
-              placeholder="e.g. Gita Rahasya" className={inputCls} required />
-          </Field>
-
-          <Field label="Author" hint="(optional)">
-            <input value={author} onChange={(e) => setAuthor(e.target.value)}
-              placeholder="e.g. Bal Gangadhar Tilak" className={inputCls} />
-          </Field>
-
-          <Field label="Description" required>
-            <textarea value={description} onChange={(e) => setDescription(e.target.value)}
-              rows={3} placeholder="A short description shown on the books page…"
-              className={inputCls} required />
-          </Field>
-
-          <Field label="Cover Image — Drive Link" hint="(optional)">
-            <input value={coverLink} onChange={(e) => setCoverLink(e.target.value)}
-              placeholder="https://drive.google.com/file/d/.../view?usp=sharing"
-              className={monoCls} />
-            <div className="flex items-center gap-3 mt-1.5">
-              <DriveStatus url={coverLink} label="Cover" />
-              <CoverPreview url={coverLink} />
-            </div>
-          </Field>
-
-          <Field label="PDF — Drive Link" hint="(optional)">
-            <input value={pdfLink} onChange={(e) => setPdfLink(e.target.value)}
-              placeholder="https://drive.google.com/file/d/.../view?usp=sharing"
-              className={monoCls} />
-            <div className="mt-1.5"><DriveStatus url={pdfLink} label="PDF" /></div>
-            {pdfLink && (
-              <p className="text-xs text-ink/45 mt-1 font-sans">
-                Readers will see &quot;Read online&quot; + &quot;Download PDF&quot; buttons.
-              </p>
-            )}
-          </Field>
-
-          <div className="grid grid-cols-2 gap-4">
-            <Field label="Order" hint="(lower = first)">
-              <input type="number" value={order}
-                onChange={(e) => setOrder(parseInt(e.target.value, 10) || 0)}
-                className={inputCls} />
-            </Field>
-            <div className="flex items-end pb-1">
-              <label className="flex items-center gap-2 text-sm font-sans text-ink/75 cursor-pointer">
-                <input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)}
-                  className="w-4 h-4 accent-saffron rounded" />
-                Feature on homepage
-              </label>
+          <div className="flex items-center justify-between">
+            <h2 className="font-serif text-lg text-ink">New Book</h2>
+            <div className="flex bg-saffron/10 rounded-full p-1 text-xs font-sans">
+              <button type="button" onClick={() => setBulkMode(false)}
+                className={`py-1 px-3 rounded-full transition-all ${!bulkMode ? "bg-saffron text-white shadow" : "text-ink/60 hover:text-ink"}`}>
+                Single
+              </button>
+              <button type="button" onClick={() => setBulkMode(true)}
+                className={`py-1 px-3 rounded-full transition-all ${bulkMode ? "bg-saffron text-white shadow" : "text-ink/60 hover:text-ink"}`}>
+                Folder Sync
+              </button>
             </div>
           </div>
+
+          {!bulkMode ? (
+            <>
+              <Field label="Title" required>
+                <input value={title} onChange={(e) => setTitle(e.target.value)}
+                  placeholder="e.g. Gita Rahasya" className={inputCls} required />
+              </Field>
+
+              <Field label="Author" hint="(optional)">
+                <input value={author} onChange={(e) => setAuthor(e.target.value)}
+                  placeholder="e.g. Bal Gangadhar Tilak" className={inputCls} />
+              </Field>
+
+              <Field label="Description" required>
+                <textarea value={description} onChange={(e) => setDescription(e.target.value)}
+                  rows={3} placeholder="A short description shown on the books page…"
+                  className={inputCls} required />
+              </Field>
+
+              <Field label="Cover Image" hint="(Drive link or direct upload)">
+                <div className="flex gap-2">
+                  <input value={coverLink} onChange={(e) => setCoverLink(e.target.value)}
+                    placeholder="https://drive.google.com/..." className={monoCls + " flex-1"} />
+                  <DirectUpload folder="covers" onUploadComplete={(url) => setCoverLink(url)} label="Upload" accept="image/*" />
+                </div>
+                <div className="flex items-center gap-3 mt-1.5">
+                  <DriveStatus url={coverLink} label="Cover" />
+                  <CoverPreview url={coverLink} />
+                </div>
+              </Field>
+
+              <Field label="PDF" hint="(Drive link or direct upload)">
+                <div className="flex gap-2">
+                  <input value={pdfLink} onChange={(e) => setPdfLink(e.target.value)}
+                    placeholder="https://drive.google.com/..." className={monoCls + " flex-1"} />
+                  <DirectUpload folder="books" onUploadComplete={(url) => setPdfLink(url)} label="Upload" accept=".pdf" />
+                </div>
+                <div className="mt-1.5"><DriveStatus url={pdfLink} label="PDF" /></div>
+                {pdfLink && (
+                  <p className="text-xs text-ink/45 mt-1 font-sans">
+                    Readers will see &quot;Read online&quot; + &quot;Download PDF&quot; buttons.
+                  </p>
+                )}
+              </Field>
+
+              <div className="grid grid-cols-2 gap-4">
+                <Field label="Order" hint="(lower = first)">
+                  <input type="number" value={order}
+                    onChange={(e) => setOrder(parseInt(e.target.value, 10) || 0)}
+                    className={inputCls} />
+                </Field>
+                <div className="flex items-end pb-1">
+                  <label className="flex items-center gap-2 text-sm font-sans text-ink/75 cursor-pointer">
+                    <input type="checkbox" checked={featured} onChange={(e) => setFeatured(e.target.checked)}
+                      className="w-4 h-4 accent-saffron rounded" />
+                    Feature on homepage
+                  </label>
+                </div>
+              </div>
+
+              <button type="submit" disabled={busy}
+                className="w-full rounded-2xl bg-saffron text-white py-3 font-semibold font-sans
+                  shadow-glow-sm hover:bg-saffron-dim disabled:opacity-50 active:scale-95 transition-all">
+                {busy ? "Saving…" : "Save Book"}
+              </button>
+            </>
+          ) : (
+            <div className="space-y-4">
+              <p className="text-sm text-ink/70 font-sans">
+                Paste a Google Drive Folder link containing PDF books. Each PDF will be imported as a new book entry.
+              </p>
+              
+              <div className="space-y-3">
+                <Field label="Google Drive Folder Link" required hint={folderFiles.length > 0 ? "Review PDFs below" : ""}>
+                  <div className="flex gap-2">
+                    <input 
+                      placeholder="https://drive.google.com/drive/folders/..." 
+                      className={monoCls + " flex-1"} 
+                      id="book-folder-url"
+                      disabled={busy || folderFiles.length > 0}
+                    />
+                    {folderFiles.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => { setFolderFiles([]); setMsg(null); }}
+                        className="rounded-xl bg-ink/5 text-ink/60 px-4 py-2 font-sans font-semibold text-xs border border-ink/10 hover:bg-ink/10 transition-all"
+                      >
+                        Reset
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={async () => {
+                          const url = (document.getElementById("book-folder-url") as HTMLInputElement).value;
+                          const folderId = gdriveFolderId(url);
+                          if (!folderId) { setMsg("Invalid folder link."); return; }
+                          
+                          setBusy(true);
+                          setMsg("Scanning folder...");
+                          try {
+                            const res = await fetch(`/api/admin/gdrive/folder?id=${folderId}`);
+                            if (!res.ok) {
+                              const err = await res.json();
+                              throw new Error(err.error || "Fetch failed");
+                            }
+                            const files = await res.json();
+                            
+                            // Helper to clean titles for fuzzy matching
+                            const clean = (s: string) => s.toLowerCase()
+                              .replace(/^\d+[\s.)-]*\s*/, "") // Remove leading "1) ", "01 - ", etc.
+                              .replace(/\.[^/.]+$/, "")       // Remove extension
+                              .replace(/\s+/g, "")            // Remove spaces
+                              .trim();
+
+                            const existingCleanTitles = rows.map(r => clean(r.title || ""));
+                            
+                            const pdfFiles = files
+                              .filter((f: any) => f.mimeType === "application/pdf")
+                              .map((f: any) => {
+                                const fileIdMatch = rows.some(r => r.pdfUrl.includes(f.id));
+                                const titleMatch = existingCleanTitles.includes(clean(f.name));
+                                const alreadyAdded = fileIdMatch || titleMatch;
+                                return { ...f, selected: !alreadyAdded, alreadyAdded };
+                              });
+                            
+                            if (pdfFiles.length === 0) {
+                              setMsg("No PDF files found in this folder.");
+                            } else {
+                              setFolderFiles(pdfFiles);
+                              const count = pdfFiles.filter(f => !f.alreadyAdded).length;
+                              setMsg(`Found ${pdfFiles.length} files (${count} new). Select PDFs to import.`);
+                            }
+                          } catch (err) {
+                            setMsg(`Error: ${err instanceof Error ? err.message : "Sync failed"}. Check your .env key.`);
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                        className="rounded-xl bg-saffron text-white px-4 py-2 font-sans font-semibold text-xs shadow-sm hover:bg-saffron-dim transition-all disabled:opacity-50"
+                      >
+                        {busy ? "Scanning..." : "Fetch Files"}
+                      </button>
+                    )}
+                  </div>
+                </Field>
+
+                {folderFiles.length > 0 && (
+                  <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+                    <div className="max-h-60 overflow-y-auto border border-ink/10 rounded-xl bg-white/50 p-2 space-y-1">
+                      {folderFiles.map((f, i) => (
+                        <label key={f.id} className={`flex items-center gap-3 p-2 rounded-lg transition-colors border border-transparent ${
+                          f.alreadyAdded ? "opacity-60 cursor-not-allowed bg-ink/5" : "hover:bg-white cursor-pointer hover:border-ink/5"
+                        }`}>
+                          <input 
+                            type="checkbox" 
+                            disabled={f.alreadyAdded}
+                            checked={f.selected} 
+                            onChange={(e) => {
+                              const next = [...folderFiles];
+                              next[i].selected = e.target.checked;
+                              setFolderFiles(next);
+                            }}
+                            className="w-4 h-4 accent-saffron" 
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-medium text-ink truncate">{f.name}</p>
+                              {f.alreadyAdded && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold uppercase tracking-wider">
+                                  Already Added
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-ink/40 font-mono uppercase">PDF • {f.id.slice(0, 8)}...</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+
+                    <button
+                      type="button"
+                      disabled={busy || !folderFiles.some(f => f.selected)}
+                      onClick={async () => {
+                        const toImport = folderFiles.filter(f => f.selected);
+                        setBusy(true);
+                        setMsg(`Importing ${toImport.length} books...`);
+                        let successCount = 0;
+
+                        for (let i = 0; i < toImport.length; i++) {
+                          const file = toImport[i];
+                          try {
+                            const bookRes = await fetch("/api/admin/books", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                title: file.name.split(".").slice(0, -1).join("."),
+                                author: author.trim() || undefined,
+                                description: `Imported from Drive folder.`,
+                                pdfUrl: `https://drive.google.com/file/d/${file.id}/view`,
+                                order: order + i,
+                                published: true,
+                              }),
+                            });
+                            if (bookRes.ok) successCount++;
+                            setMsg(`Importing ${i + 1}/${toImport.length}...`);
+                          } catch (e) { console.error(e); }
+                        }
+
+                        await refresh();
+                        setMsg(`✓ ${successCount} books imported.`);
+                        setFolderFiles([]);
+                        setFormOpen(false);
+                        setBusy(false);
+                      }}
+                      className="w-full rounded-xl bg-ink text-white py-2.5 font-sans font-semibold text-sm shadow-md hover:bg-ink/90 transition-all active:scale-[0.98]"
+                    >
+                      {busy ? "Importing..." : `Import ${folderFiles.filter(f => f.selected).length} Selected Books`}
+                    </button>
+                  </div>
+                )}
+
+                <Field label="Author Name" hint="(for selected books)">
+                  <input value={author} onChange={(e) => setAuthor(e.target.value)}
+                    placeholder="e.g. Swami Vivekananda" className={inputCls} />
+                </Field>
+                <p className="text-[11px] text-ink/40 font-sans">Titles will be set to filenames. Descriptions can be edited later.</p>
+              </div>
+            </div>
+          )}
 
           {msg && (
             <p className={`text-sm font-sans ${msg.startsWith("✓") ? "text-emerald-700" : "text-red-600"}`}>
               {msg}
             </p>
           )}
-
-          <button type="submit" disabled={busy}
-            className="w-full rounded-2xl bg-saffron text-white py-3 font-semibold font-sans
-              shadow-glow-sm hover:bg-saffron-dim disabled:opacity-50 active:scale-95 transition-all">
-            {busy ? "Saving…" : "Save Book"}
-          </button>
         </form>
       )}
 
@@ -299,18 +485,24 @@ export function AdminBooksClient() {
               {/* Editable links */}
               <div className="px-4 pb-4 space-y-3 border-t border-ink/6 pt-3">
                 <label className="block">
-                  <span className="text-[11px] text-ink/50 uppercase tracking-wider font-sans">Cover image (Drive link)</span>
-                  <input defaultValue={r.coverUrl ?? ""} placeholder="https://drive.google.com/file/d/.../view"
-                    className={monoCls + " mt-1"}
-                    onBlur={(e) => patch(r._id, { coverUrl: e.target.value.trim() || "" })} />
+                  <span className="text-[11px] text-ink/50 uppercase tracking-wider font-sans">Cover image</span>
+                  <div className="flex gap-2 mt-1">
+                    <input defaultValue={r.coverUrl ?? ""} placeholder="URL..."
+                      className={monoCls + " flex-1"}
+                      onBlur={(e) => patch(r._id, { coverUrl: e.target.value.trim() || "" })} />
+                    <DirectUpload folder="covers" onUploadComplete={(url) => patch(r._id, { coverUrl: url })} label="Upload" accept="image/*" />
+                  </div>
                   <div className="mt-1"><DriveStatus url={r.coverUrl ?? ""} label="Cover" /></div>
                 </label>
 
                 <label className="block">
-                  <span className="text-[11px] text-ink/50 uppercase tracking-wider font-sans">PDF (Drive link)</span>
-                  <input defaultValue={r.pdfUrl ?? ""} placeholder="https://drive.google.com/file/d/.../view"
-                    className={monoCls + " mt-1"}
-                    onBlur={(e) => patch(r._id, { pdfUrl: e.target.value.trim() || "" })} />
+                  <span className="text-[11px] text-ink/50 uppercase tracking-wider font-sans">PDF</span>
+                  <div className="flex gap-2 mt-1">
+                    <input defaultValue={r.pdfUrl ?? ""} placeholder="URL..."
+                      className={monoCls + " flex-1"}
+                      onBlur={(e) => patch(r._id, { pdfUrl: e.target.value.trim() || "" })} />
+                    <DirectUpload folder="books" onUploadComplete={(url) => patch(r._id, { pdfUrl: url })} label="Upload" accept=".pdf" />
+                  </div>
                   <div className="mt-1"><DriveStatus url={r.pdfUrl ?? ""} label="PDF" /></div>
                 </label>
 

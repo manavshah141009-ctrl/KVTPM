@@ -10,7 +10,13 @@ export default async function BooksPage() {
   let books: any[] = [];
   try {
     await dbConnect();
-    books = await Book.find({ published: true }).sort({ order: 1, createdAt: -1 }).lean() as any[];
+    const rawBooks = await Book.find({ published: true }).sort({ order: 1, createdAt: -1 }).lean() as any[];
+    books = rawBooks.map(b => ({
+      ...b,
+      _id: b._id.toString(),
+      createdAt: b.createdAt?.toISOString(),
+      updatedAt: b.updatedAt?.toISOString(),
+    }));
   } catch {
     books = [];
   }

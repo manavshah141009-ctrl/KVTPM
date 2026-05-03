@@ -7,7 +7,7 @@ import { z } from "zod";
 const Put = z.object({
   title: z.string().min(1).optional(),
   streamKeyOrUrl: z.string(),
-  provider: z.enum(["youtube", "embed", "hls"]).optional(),
+  provider: z.enum(["youtube", "embed", "hls", "livekit"]).optional(),
   isLive: z.boolean().optional(),
   chatEmbedHtml: z.string().optional().nullable(),
 });

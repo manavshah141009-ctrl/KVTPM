@@ -6,9 +6,11 @@ import { LogoutButton } from "./logout-button";
 
 const NAV = [
   { href: "/admin",        label: "Overview", icon: "⬡" },
-  { href: "/admin/tracks", label: "Audio",    icon: "🎵" },
-  { href: "/admin/books",  label: "Books",    icon: "📖" },
-  { href: "/admin/live",   label: "Live",     icon: "📡" },
+  { href: "/admin/tracks",    label: "Audio",      icon: "🎵" },
+  { href: "/admin/books",     label: "Books",      icon: "📖" },
+  { href: "/admin/broadcast", label: "Broadcast",  icon: "🎙️" },
+  { href: "/admin/live",      label: "Live Config", icon: "📡" },
+  { href: "/admin/leads",     label: "Leads",      icon: "👥" },
 ];
 
 export function AdminShell({

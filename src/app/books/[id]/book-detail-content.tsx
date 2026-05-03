@@ -1,8 +1,11 @@
 "use client";
 
+import { useState, useEffect } from "react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useLanguage } from "@/contexts/language-context";
 import { gdriveThumbnailUrl, gdriveDownloadUrl, isGdriveUrl } from "@/lib/gdrive";
+import { LeadFormModal } from "@/components/books/lead-form-modal";
 
 interface Props {
   book: any;
@@ -10,6 +13,54 @@ interface Props {
 
 export function BookDetailContent({ book }: Props) {
   const { tr } = useLanguage();
+  const router = useRouter();
+  const [modalOpen, setModalOpen] = useState(false);
+  const [pendingAction, setPendingAction] = useState<"read" | "download" | null>(null);
+  const [isLeadCaptured, setIsLeadCaptured] = useState(false);
+
+  useEffect(() => {
+    const captured = localStorage.getItem("kvtp_lead_captured") === "true";
+    setIsLeadCaptured(captured);
+  }, []);
+
+  const handleAction = (action: "read" | "download") => {
+    if (isLeadCaptured) {
+      executeAction(action);
+    } else {
+      setPendingAction(action);
+      setModalOpen(true);
+    }
+  };
+
+  const executeAction = (action: "read" | "download") => {
+    if (action === "read") {
+      router.push(`/books/${String(book._id)}/read`);
+    } else {
+      const url = isGdriveUrl(book.pdfUrl) ? gdriveDownloadUrl(book.pdfUrl) : book.pdfUrl;
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
+  const handleLeadSubmit = async (data: { name: string; phone: string }) => {
+    const res = await fetch("/api/leads", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...data,
+        bookId: book._id,
+        bookTitle: book.title,
+        action: pendingAction,
+      }),
+    });
+
+    if (res.ok) {
+      localStorage.setItem("kvtp_lead_captured", "true");
+      setIsLeadCaptured(true);
+      if (pendingAction) executeAction(pendingAction);
+    } else {
+      throw new Error("Failed to save lead");
+    }
+  };
 
   return (
     <div className="max-w-6xl mx-auto px-4 py-10 md:py-14">
@@ -38,25 +89,30 @@ export function BookDetailContent({ book }: Props) {
           <div className="flex flex-wrap gap-3 mt-8">
             {book.pdfUrl && (
               <>
-                <a
-                  href={isGdriveUrl(book.pdfUrl) ? gdriveDownloadUrl(book.pdfUrl) : book.pdfUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  onClick={() => handleAction("download")}
                   className="inline-flex rounded-2xl bg-saffron text-white px-5 py-2.5 font-sans font-medium shadow-glow-sm hover:bg-saffron-dim"
                 >
                   {tr("books.download")}
-                </a>
-                <Link
-                  href={`/books/${String(book._id)}/read`}
+                </button>
+                <button
+                  onClick={() => handleAction("read")}
                   className="inline-flex rounded-2xl border border-saffron/40 text-saffron-dim px-5 py-2.5 font-sans font-medium hover:bg-white/50"
                 >
                   {tr("books.readOnline")}
-                </Link>
+                </button>
               </>
             )}
           </div>
         </div>
       </div>
+
+      <LeadFormModal
+        isOpen={modalOpen}
+        onClose={() => setModalOpen(false)}
+        onSubmit={handleLeadSubmit}
+        bookTitle={book.title}
+      />
     </div>
   );
 }

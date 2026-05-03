@@ -1,7 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { gdriveAudioUrl, gdriveFileId, isGdriveUrl } from "@/lib/gdrive";
+import { gdriveAudioUrl, gdriveFileId, gdriveFolderId, isGdriveUrl } from "@/lib/gdrive";
+import { DirectUpload } from "./direct-upload";
 
 type TrackRow = {
   _id: string;
@@ -82,9 +83,9 @@ export function AdminTracksClient() {
   const [isRepeating, setIsRepeating] = useState(true);
   const [busy, setBusy] = useState(false);
 
-  // Bulk paste state
   const [bulkMode, setBulkMode] = useState(false);
   const [bulkText, setBulkText] = useState("");
+  const [folderFiles, setFolderFiles] = useState<any[]>([]);
 
   async function refresh() {
     const res = await fetch("/api/admin/tracks");
@@ -148,7 +149,7 @@ export function AdminTracksClient() {
   async function addBulkTracks(e: React.FormEvent) {
     e.preventDefault();
     setMsg(null);
-    const links = bulkText.split('\n').map(l => l.trim()).filter(l => l.length > 0);
+    const links = (bulkText || "").split("\n").map(l => l.trim()).filter(l => l.length > 0);
     if (!links.length) { setMsg("Paste at least one link."); return; }
     
     setBusy(true);
@@ -247,9 +248,13 @@ export function AdminTracksClient() {
                 className={`py-1 px-3 rounded-full transition-all ${!bulkMode ? "bg-saffron text-white shadow" : "text-ink/60 hover:text-ink"}`}>
                 Single
               </button>
-              <button type="button" onClick={() => setBulkMode(true)}
-                className={`py-1 px-3 rounded-full transition-all ${bulkMode ? "bg-saffron text-white shadow" : "text-ink/60 hover:text-ink"}`}>
+              <button type="button" onClick={() => { setBulkMode(true); setBulkText(""); }}
+                className={`py-1 px-3 rounded-full transition-all ${bulkMode && typeof bulkText === "string" ? "bg-saffron text-white shadow" : "text-ink/60 hover:text-ink"}`}>
                 Bulk Paste
+              </button>
+              <button type="button" onClick={() => { setBulkMode(true); setBulkText(null as any); }}
+                className={`py-1 px-3 rounded-full transition-all ${bulkMode && bulkText === null ? "bg-saffron text-white shadow" : "text-ink/60 hover:text-ink"}`}>
+                Folder Sync
               </button>
             </div>
           </div>
@@ -266,10 +271,12 @@ export function AdminTracksClient() {
                   placeholder="e.g. Anup Jalota" className={inputCls} />
               </Field>
 
-              <Field label="Google Drive Audio Link" required>
-                <input value={audioLink} onChange={(e) => setAudioLink(e.target.value)}
-                  placeholder="https://drive.google.com/file/d/.../view?usp=sharing"
-                  className={monoCls} />
+              <Field label="Audio" required hint="(Drive link or direct upload)">
+                <div className="flex gap-2">
+                  <input value={audioLink} onChange={(e) => setAudioLink(e.target.value)}
+                    placeholder="https://drive.google.com/..." className={monoCls + " flex-1"} />
+                  <DirectUpload folder="audio" onUploadComplete={(url) => setAudioLink(url)} label="Upload" accept="audio/*" />
+                </div>
                 <div className="mt-1.5"><DriveStatus url={audioLink} /></div>
               </Field>
 
@@ -360,6 +367,169 @@ export function AdminTracksClient() {
                 )}
               </div>
             </>
+          ) : bulkText === null ? (
+            <div className="space-y-4">
+              <p className="text-sm text-ink/70 font-sans">
+                Paste a Google Drive Folder link. The system will scan the folder for all audio files and add them to your rotation.
+              </p>
+              
+              <div className="space-y-3">
+                <Field label="Google Drive Folder Link" required hint={folderFiles.length > 0 ? "Review files below" : ""}>
+                  <div className="flex gap-2">
+                    <input 
+                      placeholder="https://drive.google.com/drive/folders/..." 
+                      className={monoCls + " flex-1"} 
+                      id="folder-sync-url"
+                      disabled={busy || folderFiles.length > 0}
+                    />
+                    {folderFiles.length > 0 ? (
+                      <button
+                        type="button"
+                        onClick={() => { setFolderFiles([]); setMsg(null); }}
+                        className="rounded-xl bg-ink/5 text-ink/60 px-4 py-2 font-sans font-semibold text-xs border border-ink/10 hover:bg-ink/10 transition-all"
+                      >
+                        Reset
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        disabled={busy}
+                        onClick={async () => {
+                          const url = (document.getElementById("folder-sync-url") as HTMLInputElement).value;
+                          const folderId = gdriveFolderId(url);
+                          if (!folderId) { setMsg("Invalid folder link."); return; }
+                          
+                          setBusy(true);
+                          setMsg("Scanning folder...");
+                          try {
+                            const res = await fetch(`/api/admin/gdrive/folder?id=${folderId}`);
+                            if (!res.ok) {
+                              const err = await res.json();
+                              throw new Error(err.error || "Fetch failed");
+                            }
+                            const files = await res.json();
+                            
+                            // Helper to clean titles for fuzzy matching
+                            const clean = (s: string) => s.toLowerCase()
+                              .replace(/^\d+[\s.)-]*\s*/, "") // Remove leading "1) ", "01 - ", etc.
+                              .replace(/\.[^/.]+$/, "")       // Remove extension
+                              .replace(/\s+/g, "")            // Remove spaces
+                              .trim();
+
+                            const existingCleanTitles = rows.map(r => clean(r.title || ""));
+                            
+                            const audioFiles = files
+                              .filter((f: any) => f.mimeType.startsWith("audio/"))
+                              .map((f: any) => {
+                                const fileIdMatch = rows.some(r => r.audioUrl.includes(f.id));
+                                const titleMatch = existingCleanTitles.includes(clean(f.name));
+                                const alreadyAdded = fileIdMatch || titleMatch;
+                                return { ...f, selected: !alreadyAdded, alreadyAdded };
+                              });
+                            
+                            if (audioFiles.length === 0) {
+                              setMsg("No audio files found in this folder.");
+                            } else {
+                              setFolderFiles(audioFiles);
+                              const count = audioFiles.filter(f => !f.alreadyAdded).length;
+                              setMsg(`Found ${audioFiles.length} files (${count} new). Select tracks to import.`);
+                            }
+                          } catch (err) {
+                            setMsg(`Error: ${err instanceof Error ? err.message : "Sync failed"}. Check your .env key.`);
+                          } finally {
+                            setBusy(false);
+                          }
+                        }}
+                        className="rounded-xl bg-saffron text-white px-4 py-2 font-sans font-semibold text-xs shadow-sm hover:bg-saffron-dim transition-all disabled:opacity-50"
+                      >
+                        {busy ? "Scanning..." : "Fetch Files"}
+                      </button>
+                    )}
+                  </div>
+                </Field>
+
+                {folderFiles.length > 0 && (
+                  <div className="space-y-3 animate-in fade-in slide-in-from-top-2">
+                    <div className="max-h-60 overflow-y-auto border border-ink/10 rounded-xl bg-white/50 p-2 space-y-1">
+                      {folderFiles.map((f, i) => (
+                        <label key={f.id} className={`flex items-center gap-3 p-2 rounded-lg transition-colors border border-transparent ${
+                          f.alreadyAdded ? "opacity-60 cursor-not-allowed bg-ink/5" : "hover:bg-white cursor-pointer hover:border-ink/5"
+                        }`}>
+                          <input 
+                            type="checkbox" 
+                            disabled={f.alreadyAdded}
+                            checked={f.selected} 
+                            onChange={(e) => {
+                              const next = [...folderFiles];
+                              next[i].selected = e.target.checked;
+                              setFolderFiles(next);
+                            }}
+                            className="w-4 h-4 accent-saffron" 
+                          />
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                              <p className="text-xs font-medium text-ink truncate">{f.name}</p>
+                              {f.alreadyAdded && (
+                                <span className="text-[9px] px-1.5 py-0.5 rounded bg-emerald-100 text-emerald-700 font-bold uppercase tracking-wider">
+                                  Already Added
+                                </span>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-ink/40 font-mono uppercase">{f.mimeType.split("/")[1]} • {f.id.slice(0, 8)}...</p>
+                          </div>
+                        </label>
+                      ))}
+                    </div>
+
+                    <Field label="Artist Name" hint="(for selected tracks)">
+                      <input value={artist} onChange={(e) => setArtist(e.target.value)}
+                        placeholder="e.g. Anup Jalota" className={inputCls} />
+                    </Field>
+
+                    <button
+                      type="button"
+                      disabled={busy || !folderFiles.some(f => f.selected)}
+                      onClick={async () => {
+                        const toImport = folderFiles.filter(f => f.selected);
+                        setBusy(true);
+                        setMsg(`Importing ${toImport.length} tracks...`);
+                        let successCount = 0;
+
+                        for (let i = 0; i < toImport.length; i++) {
+                          const file = toImport[i];
+                          try {
+                            const trackRes = await fetch("/api/admin/tracks", {
+                              method: "POST",
+                              headers: { "Content-Type": "application/json" },
+                              body: JSON.stringify({
+                                title: file.name.split(".").slice(0, -1).join("."),
+                                artist: artist.trim() || undefined,
+                                audioUrl: `https://drive.google.com/file/d/${file.id}/view`,
+                                order: order + i,
+                                published: true,
+                                scheduleType: "rotation",
+                                isRepeating: true,
+                              }),
+                            });
+                            if (trackRes.ok) successCount++;
+                            setMsg(`Importing ${i + 1}/${toImport.length}...`);
+                          } catch (e) { console.error(e); }
+                        }
+
+                        await refresh();
+                        setMsg(`✓ ${successCount} tracks imported.`);
+                        setFolderFiles([]);
+                        setFormOpen(false);
+                        setBusy(false);
+                      }}
+                      className="w-full rounded-xl bg-ink text-white py-2.5 font-sans font-semibold text-sm shadow-md hover:bg-ink/90 transition-all active:scale-[0.98]"
+                    >
+                      {busy ? "Importing..." : `Import ${folderFiles.filter(f => f.selected).length} Selected Tracks`}
+                    </button>
+                  </div>
+                )}
+              </div>
+            </div>
           ) : (
             <>
               <p className="text-sm text-ink/70 font-sans">
@@ -468,12 +638,15 @@ export function AdminTracksClient() {
                 {/* Audio URL */}
                 <label className="block">
                   <span className="text-[11px] text-ink/50 uppercase tracking-wider font-sans">Audio URL</span>
-                  <input
-                    defaultValue={r.audioUrl}
-                    placeholder="https://drive.google.com/file/d/.../view"
-                    className={monoCls + " mt-1"}
-                    onBlur={(e) => patch(r._id, { audioUrl: e.target.value.trim() })}
-                  />
+                  <div className="flex gap-2 mt-1">
+                    <input
+                      defaultValue={r.audioUrl}
+                      placeholder="URL..."
+                      className={monoCls + " flex-1"}
+                      onBlur={(e) => patch(r._id, { audioUrl: e.target.value.trim() })}
+                    />
+                    <DirectUpload folder="audio" onUploadComplete={(url) => patch(r._id, { audioUrl: url })} label="Upload" accept="audio/*" />
+                  </div>
                 </label>
 
                 {/* Inline controls row */}

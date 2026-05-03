@@ -70,3 +70,32 @@ export function gdriveDownloadUrl(url: string): string {
   if (!id) return url;
   return `https://drive.google.com/uc?export=download&id=${id}`;
 }
+/** Extract the folder ID from a Google Drive folder URL. */
+export function gdriveFolderId(url: string): string | null {
+  if (!url) return null;
+  const m = url.match(/\/folders\/([a-zA-Z0-9_-]{20,})/);
+  return m ? m[1] : null;
+}
+
+/** 
+ * List files in a public Google Drive folder using the API Key.
+ * Requires GOOGLE_DRIVE_API_KEY in .env.
+ */
+export async function listFolderContents(folderId: string) {
+  const apiKey = process.env.GOOGLE_DRIVE_API_KEY;
+  if (!apiKey) throw new Error("GOOGLE_DRIVE_API_KEY is not set in .env");
+
+  // Query for files in this parent, not trashed
+  const q = `'${folderId}' in parents and trashed = false`;
+  const fields = "files(id, name, mimeType, size)";
+  const url = `https://www.googleapis.com/drive/v3/files?q=${encodeURIComponent(q)}&fields=${fields}&key=${apiKey}`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err.error?.message || `Drive API error: ${res.status}`);
+  }
+
+  const data = await res.json();
+  return data.files as Array<{ id: string; name: string; mimeType: string; size?: string }>;
+}

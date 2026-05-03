@@ -17,7 +17,11 @@ export async function generateMetadata({ params }: Props): Promise<Metadata> {
     await dbConnect();
     const b = await Book.findOne({ _id: id, published: true }).lean();
     if (!b) return { title: "Book" };
-    return { title: b.title, description: b.description.slice(0, 160) };
+    // Safety check for title and description to prevent crashes if fields are missing
+    return { 
+      title: b.title || "Book", 
+      description: (b.description || "").slice(0, 160) 
+    };
   } catch {
     return { title: "Book" };
   }
