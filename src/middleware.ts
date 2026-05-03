@@ -7,6 +7,7 @@ export function middleware(request: NextRequest) {
   // Only protect /admin routes, but ignore the login page itself
   if (pathname.startsWith("/admin") && pathname !== "/admin/login") {
     const session = request.cookies.get("kvtp_admin")?.value;
+    console.log(`[middleware] Path: ${pathname}, Session present: ${!!session}`);
 
     if (!session) {
       // No cookie? Redirect to login
@@ -20,5 +21,5 @@ export function middleware(request: NextRequest) {
 
 // See "Matching Paths" below to learn more
 export const config = {
-  matcher: ["/admin/:path*"],
+  matcher: ["/admin", "/admin/:path*"],
 };
