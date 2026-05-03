@@ -24,7 +24,14 @@ const CARDS = [
     border: "border-emerald-200/60",
     title: "Live Stream",
     desc: "Set YouTube Live ID, toggle the live indicator, and add chat embed.",
-    wide: true,
+  },
+  {
+    href: "/admin/broadcast",
+    icon: "🎙️",
+    color: "from-amber-50 to-white/30",
+    border: "border-amber-200/60",
+    title: "Broadcaster",
+    desc: "Start a live audio broadcast with automated archiving to Google Drive.",
   },
 ];
 
