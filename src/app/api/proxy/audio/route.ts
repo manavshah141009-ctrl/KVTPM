@@ -66,11 +66,20 @@ export async function GET(req: NextRequest) {
   try {
     upstream = await fetch(driveUrl(id), {
       headers: baseHeaders,
-      redirect: "follow",
+      redirect: "manual", // Do NOT follow redirects to avoid downloading the body
     });
   } catch (e) {
     console.error("[proxy/audio] Fetch error:", e);
     return new NextResponse("Failed to reach Google Drive", { status: 502 });
+  }
+
+  // If Drive immediately redirects us (e.g., small file or valid direct link),
+  // we capture the final Googleusercontent URL and redirect the client there.
+  if ([301, 302, 303, 307, 308].includes(upstream.status)) {
+    const location = upstream.headers.get("location");
+    if (location) {
+      return NextResponse.redirect(location, 302);
+    }
   }
 
   // ── Step 2: handle virus-scan HTML interstitial for large files ────────────
@@ -85,7 +94,6 @@ export async function GET(req: NextRequest) {
 
     const confirm = extractConfirm(html);
     if (!confirm) {
-      // Still HTML and no confirm token — file may not be publicly shared
       return new NextResponse(
         "Google Drive returned a confirmation page with no extractable token. " +
           "Make sure the file is shared as 'Anyone with the link'.",
@@ -93,18 +101,25 @@ export async function GET(req: NextRequest) {
       );
     }
 
-    // Retry with the real confirm token, forwarding Range again
+    // Retry with the real confirm token
     try {
       upstream = await fetch(driveUrl(id, confirm), {
         headers: baseHeaders,
-        redirect: "follow",
+        redirect: "manual",
       });
     } catch (e) {
       console.error("[proxy/audio] Retry fetch error:", e);
       return new NextResponse("Failed to reach Google Drive on retry", { status: 502 });
     }
 
-    // If still HTML after confirm, file is not publicly accessible
+    // After confirmation, Drive should redirect us to the final download URL
+    if ([301, 302, 303, 307, 308].includes(upstream.status)) {
+      const location = upstream.headers.get("location");
+      if (location) {
+        return NextResponse.redirect(location, 302);
+      }
+    }
+
     const ct2 = upstream.headers.get("content-type") ?? "";
     if (ct2.includes("text/html")) {
       return new NextResponse(
@@ -114,30 +129,8 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  if (!upstream.ok && upstream.status !== 206) {
-    return new NextResponse(
-      `Drive responded with ${upstream.status}`,
-      { status: 502 }
-    );
-  }
-
-  // ── Step 3: relay the audio stream to the browser ─────────────────────────
-  const finalCt = upstream.headers.get("content-type") || "audio/mpeg";
-  const responseHeaders = new Headers({
-    "Content-Type": finalCt,
-    "Accept-Ranges": "bytes",
-    "Cache-Control": "public, max-age=3600",
-    "Access-Control-Allow-Origin": "*",
-  });
-
-  const contentLength = upstream.headers.get("content-length");
-  if (contentLength) responseHeaders.set("Content-Length", contentLength);
-
-  const contentRange = upstream.headers.get("content-range");
-  if (contentRange) responseHeaders.set("Content-Range", contentRange);
-
-  return new NextResponse(upstream.body, {
-    status: upstream.status, // 200 or 206
-    headers: responseHeaders,
-  });
+  // ── Step 3: Fallback (if Drive actually returns 200/206 with audio data) ───
+  // Note: We use NextResponse.redirect to the upstream URL just in case, but
+  // if it's returning data directly, we can just redirect to the Drive URL we constructed.
+  return NextResponse.redirect(upstream.url || driveUrl(id), 302);
 }
